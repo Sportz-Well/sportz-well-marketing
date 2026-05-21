@@ -1,0 +1,55 @@
+﻿# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ─── Virtual environments ────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ─── Secrets — NEVER commit these ────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# ─── Local app data (database, logs, spend logs) ─────────────────────────────
+# The DB and logs are local-machine state. Each developer/machine has its own.
+# .env.example IS committed (it's the template); real .env is not.
+data/
+
+# ─── Claude Code local config ────────────────────────────────────────────────
+# settings.local.json stores per-machine preferences, not project config.
+.claude/
+
+# ─── IDE / editor metadata ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS-generated files ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Streamlit local cache ───────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ─── Build / dist artifacts ──────────────────────────────────────────────────
+build/
+dist/
+*.egg
+
+# ─── Coverage and test artifacts ─────────────────────────────────────────────
+.coverage
+htmlcov/
+.tox/
