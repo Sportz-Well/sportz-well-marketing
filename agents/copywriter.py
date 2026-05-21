@@ -34,6 +34,20 @@ _VALID_PLATFORMS   = {"instagram", "facebook"}
 _VALID_CTA         = {"hard_cta", "soft_cta", "no_cta"}
 _VALID_CONTENT_FMT = {"single_image", "carousel", "text_post", "reel_script", "video_script"}
 
+# Allowed differentiation strategies. The model must pick one per draft.
+# Used at validation time to catch sibling variants that claim to differ but don't.
+_VALID_DIFFERENTIATION_STRATEGIES = {
+    "question_hook",       # Opens with a pointed specific question
+    "scenario_hook",       # Opens with a concrete situation or moment
+    "statement_hook",      # Opens with a direct declarative claim or observation
+    "story_hook",          # Opens with a brief anecdote or mini-narrative
+    "framework_hook",      # Opens by naming a structure or numbered approach
+    "coach_pov",           # Foregrounds the coach's perspective and decisions
+    "parent_pov",          # Foregrounds the parent's perspective and concerns
+    "player_pov",          # Foregrounds the player's perspective and experience
+    "academy_pov",         # Foregrounds the academy operator's institutional view
+}
+
 
 # ─── Public entry points ──────────────────────────────────────────────────────
 
@@ -324,13 +338,54 @@ Given a single approved story angle and its editorial brief, you produce 2 disti
 - India-specific framing where the angle calls for it — tournament structures, board acronyms, city academy contexts are all on-brand
 - Language: default to English. Do not use Hindi words, Hinglish, or transliterated cricket slang (e.g. "gully cricket", "maidan") unless the editorial brief explicitly calls for it. SWPI's audience is academy directors and coaches who read English business communication.
 
-## Variant Differentiation — both variants serve the same angle, approached differently
+## Variant Differentiation — MANDATORY, ENFORCED IN CODE
 
-Variants 1 and 2 for the same platform MUST be meaningfully different — not paraphrases of each other. Differentiate by at least one of:
-- Opening hook angle (variant 1 leads with a pointed specific question, variant 2 opens with a concrete scenario — or vice versa)
-- Structural shape (one tells a 3-beat mini-story, the other presents a numbered framework or list)
-- Perspective emphasis (one foregrounds the coach's viewpoint, the other the parent's or player's)
-- Where the CTA appears (front-loaded context vs end-of-post invitation)
+This is the most-violated rule in the pipeline. The Editor agent has been catching duplicated variants at a rate of 46%. Read this section twice before producing JSON.
+
+### The hard rule
+
+For each platform you target, you produce 2 variants. The two variants MUST be different in BOTH of the following dimensions simultaneously:
+
+1. **Hook structure** — the opening sentence (line 1 of body) MUST use a different rhetorical mode in V1 vs V2. Pick TWO different modes from this list, one per variant:
+   - `question_hook` — pointed specific question
+   - `scenario_hook` — concrete moment, situation, or vignette
+   - `statement_hook` — direct declarative claim or observation
+   - `story_hook` — brief anecdote or mini-narrative (1–2 sentences)
+   - `framework_hook` — names a structure or numbered approach
+
+2. **Perspective focus** — V1 and V2 MUST foreground a different stakeholder's viewpoint. Pick TWO different POVs from this list, one per variant:
+   - `coach_pov` — what the coach sees, decides, struggles with
+   - `parent_pov` — what the parent worries about, looks for, asks
+   - `player_pov` — what the player experiences, feels, notices
+   - `academy_pov` — what the academy operator manages, measures, scales
+
+### Concrete checks before you submit
+
+Before writing each draft, complete this sentence in your head:
+"V1's hook is a [HOOK_MODE] from the [POV] perspective. V2 must use a different hook mode AND a different perspective."
+
+If V1 starts "Why does your U-12 batter improve faster in nets than in matches?" (`question_hook`, `coach_pov`), then V2 CANNOT start with a question, AND CANNOT be from the coach's perspective. A valid V2 might open: "Last Tuesday's Under-14 selection trial in Dadar produced 47 batters but only 3 wicket-keepers." (`statement_hook`, `academy_pov`).
+
+### Forbidden — these patterns count as duplication
+
+- Same opening noun in V1 and V2 (e.g., both starting with "Your U-12 batter…")
+- Same opening verb (e.g., both starting with "Imagine…" or both starting with "Watch…")
+- Same rhetorical mode even with different words (two questions, two scenarios, etc.)
+- Same perspective even with different content (both coach-centric, both parent-centric)
+- Paraphrases of the same insight in different sentence orders
+
+### Cross-platform also applies
+
+If platform_fit is "both", you produce 4 drafts: IG V1, IG V2, FB V1, FB V2. The hook differentiation rule applies across ALL FOUR — not just within a single platform. IG V1's hook mode cannot equal FB V1's hook mode. Pick 4 different combinations from the hook × perspective grid.
+
+### Declare your strategy
+
+For each draft, you MUST include two fields in the JSON output:
+- `hook_strategy`: one of the hook modes listed above
+- `perspective_focus`: one of the POVs listed above
+
+These declarations are validated in code. If two sibling variants share the same hook_strategy OR the same perspective_focus, the system raises a warning that gets logged and surfaced in the UI.
+
 Both variants must remain faithful to the angle's editorial_brief — same core insight, different execution.
 
 ## Output Format
@@ -343,6 +398,8 @@ Return ONLY the JSON object below. No markdown fences. No prose before or after 
       "platform": "instagram" or "facebook",
       "variant_number": 1 or 2,
       "content_format": "<mirror the angle's content_format exactly: single_image | carousel | text_post | reel_script | video_script>",
+      "hook_strategy": "<one of: question_hook | scenario_hook | statement_hook | story_hook | framework_hook>",
+      "perspective_focus": "<one of: coach_pov | parent_pov | player_pov | academy_pov>",
       "headline": "the opening hook line — first sentence of the post body",
       "body": "the full caption body, with \\n\\n between paragraphs",
       "cta_line": "the explicit CTA line, or null if cta_strength is no_cta",
@@ -368,7 +425,8 @@ Return ONLY the JSON object below. No markdown fences. No prose before or after 
 IMPORTANT:
 - Set carousel_slides to null when content_format is not "carousel"
 - Set reel_script to null when content_format is not "reel_script"
-- Total drafts in the array must equal exactly {total_drafts} ({2} variants × {len(platforms)} platform(s): {", ".join(platforms)})"""
+- Total drafts in the array must equal exactly {total_drafts} ({2} variants × {len(platforms)} platform(s): {", ".join(platforms)})
+- hook_strategy and perspective_focus are REQUIRED on every draft. Validation will fail otherwise."""
 
 
 def _build_user_prompt(angle: dict, platforms: list[str]) -> str:
@@ -409,7 +467,9 @@ def _build_user_prompt(angle: dict, platforms: list[str]) -> str:
 **Proof Points Approved for This Angle:**
 {pp_block}
 
-Produce exactly {total_drafts} drafts ({2} variants per platform). Follow all platform conventions, CTA rules, proof-point rules, and variant differentiation guidelines from the system prompt."""
+Produce exactly {total_drafts} drafts ({2} variants per platform). Follow all platform conventions, CTA rules, proof-point rules, and — critically — the variant differentiation rules from the system prompt.
+
+Reminder: for every draft you MUST declare a hook_strategy and perspective_focus. Sibling variants on the same platform MUST use different values for BOTH fields. If platform_fit covers both platforms, all 4 drafts should use 4 distinct (hook_strategy, perspective_focus) combinations."""
 
 
 # ─── JSON parsing ─────────────────────────────────────────────────────────────
@@ -462,7 +522,13 @@ def _validate_drafts(
     cta_strength: str,
     content_format: str,
 ) -> tuple[list[dict], list[str]]:
-    """Coerce enum fields, enforce CTA and format rules, compute word/char counts.
+    """Coerce enum fields, enforce CTA and format rules, compute word/char counts,
+    validate variant differentiation strategies.
+
+    The differentiation_strategy fields (hook_strategy + perspective_focus) are checked
+    here at runtime, then dropped before save. They are not persisted to the DB —
+    they exist only as a forcing function on the model's output. Forensic data lives
+    in the warnings list, which is logged to api_log.notes.
 
     Returns (valid_drafts, warnings).
     """
@@ -472,6 +538,9 @@ def _validate_drafts(
     warnings: list[str] = []
     seen: dict[tuple[str, int], bool] = {}
     valid: list[dict] = []
+
+    # Track declared strategies per platform for cross-variant checks after the loop
+    strategies_by_platform: dict[str, list[dict]] = {}
 
     for d in drafts:
         if not isinstance(d, dict):
@@ -546,6 +615,41 @@ def _validate_drafts(
         elif not isinstance(d.get("reel_script"), dict):
             d["reel_script"] = None
 
+        # ── Variant differentiation strategy validation ──
+        # Capture declared strategies for cross-variant comparison below.
+        # Missing or invalid values become None — handled in the cross-check loop.
+        hook_strategy     = d.get("hook_strategy")
+        perspective_focus = d.get("perspective_focus")
+
+        if hook_strategy is not None and hook_strategy not in _VALID_DIFFERENTIATION_STRATEGIES:
+            # Could be valid perspective in wrong field; check before warning
+            warnings.append(
+                f"Draft ({platform}, variant {variant}) declared "
+                f"hook_strategy='{hook_strategy}' which is not a recognised hook mode. "
+                "Differentiation check skipped for this draft."
+            )
+            hook_strategy = None
+
+        if perspective_focus is not None and perspective_focus not in _VALID_DIFFERENTIATION_STRATEGIES:
+            warnings.append(
+                f"Draft ({platform}, variant {variant}) declared "
+                f"perspective_focus='{perspective_focus}' which is not a recognised perspective. "
+                "Differentiation check skipped for this draft."
+            )
+            perspective_focus = None
+
+        if hook_strategy is None or perspective_focus is None:
+            warnings.append(
+                f"Draft ({platform}, variant {variant}) is missing hook_strategy or "
+                "perspective_focus declaration. Cannot validate differentiation."
+            )
+
+        strategies_by_platform.setdefault(platform, []).append({
+            "variant":           variant,
+            "hook_strategy":     hook_strategy,
+            "perspective_focus": perspective_focus,
+        })
+
         # Compute word_count and char_count server-side — don't trust the model's arithmetic
         body = d.get("body", "")
         d["word_count"] = len(body.split())
@@ -562,7 +666,62 @@ def _validate_drafts(
 
         d["platform"]       = platform
         d["variant_number"] = variant
+
+        # Drop differentiation declaration fields before persistence — validation-only.
+        # Schema is unchanged; these fields would be ignored by INSERT anyway, but explicit
+        # is better than implicit.
+        d.pop("hook_strategy", None)
+        d.pop("perspective_focus", None)
+
         valid.append(d)
+
+    # ── Cross-variant differentiation checks ──
+    # Within each platform: V1 and V2 must declare different hook_strategy AND different perspective_focus.
+    # Across platforms (for platform_fit=both): all 4 drafts ideally use 4 distinct
+    # (hook_strategy, perspective_focus) combinations — soft warning if any combo repeats.
+
+    for platform, declarations in strategies_by_platform.items():
+        if len(declarations) < 2:
+            continue
+        v1 = next((d for d in declarations if d["variant"] == 1), None)
+        v2 = next((d for d in declarations if d["variant"] == 2), None)
+        if v1 is None or v2 is None:
+            continue
+        if v1["hook_strategy"] and v2["hook_strategy"] and v1["hook_strategy"] == v2["hook_strategy"]:
+            warnings.append(
+                f"Variant differentiation FAILED on {platform}: V1 and V2 both declared "
+                f"hook_strategy='{v1['hook_strategy']}'. Likely duplicate hook patterns — "
+                "review before approving."
+            )
+        if (v1["perspective_focus"] and v2["perspective_focus"]
+                and v1["perspective_focus"] == v2["perspective_focus"]):
+            warnings.append(
+                f"Variant differentiation FAILED on {platform}: V1 and V2 both declared "
+                f"perspective_focus='{v1['perspective_focus']}'. Likely duplicate perspectives — "
+                "review before approving."
+            )
+
+    # Cross-platform check — for platform_fit=both
+    if len(strategies_by_platform) > 1:
+        all_combos: list[tuple[str, tuple[str, str]]] = []
+        for platform, declarations in strategies_by_platform.items():
+            for d in declarations:
+                if d["hook_strategy"] and d["perspective_focus"]:
+                    combo = (d["hook_strategy"], d["perspective_focus"])
+                    label = f"{platform} V{d['variant']}"
+                    all_combos.append((label, combo))
+
+        seen_combos: dict[tuple[str, str], str] = {}
+        for label, combo in all_combos:
+            if combo in seen_combos:
+                warnings.append(
+                    f"Cross-platform differentiation soft-warning: {label} and "
+                    f"{seen_combos[combo]} both declared "
+                    f"(hook={combo[0]}, perspective={combo[1]}). "
+                    "Across-platform hook+perspective combos ideally all distinct."
+                )
+            else:
+                seen_combos[combo] = label
 
     return valid, warnings
 
