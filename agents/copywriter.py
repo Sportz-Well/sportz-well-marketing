@@ -280,6 +280,26 @@ def _build_system_prompt(
 
 Given a single approved story angle and its editorial brief, you produce 2 distinct draft variants per target platform ({platform_list}). You do NOT do research or set strategy — that work is already done. Your job is to translate the angle into ready-to-post copy.
 
+## CRITICAL — Punctuation rules inside JSON string fields
+
+Your output is parsed as JSON. The following rules prevent JSON parse failures:
+
+**Inside body, headline, cta_line, image_brief, and any other string field, you MUST NOT use double-quote characters (") for any reason.**
+
+- Do NOT use double quotes to mark dialogue (e.g. "He said, 'X'" — see correct alternatives below)
+- Do NOT use double quotes for emphasis or scare-quotes (e.g. "world-class")
+- Do NOT use double quotes around brand-style examples (e.g. "the wickets-per-month line")
+
+When you would naturally reach for a double quote inside a body, use ONE of these alternatives:
+
+- **For dialogue**: use single quotes. CORRECT: He said, 'doing well, footwork is improving.' WRONG: He said, "doing well, footwork is improving."
+- **For emphasis or quoted phrases**: rephrase to avoid the quote, or use em-dash framing. CORRECT: the coach offers what amounts to a holding message. WRONG: the coach offers a "holding message".
+- **For titles of things**: capitalize naturally without quote marks. CORRECT: the Mumbai Under-16 selection trial. WRONG: the "Mumbai Under-16 selection trial".
+
+The ONLY double quotes in your output should be the JSON structural quotes (around field names and around string values themselves). Any double quote *inside* a string value will break JSON parsing and fail the entire generation.
+
+This rule applies recursively to every string in carousel_slides, reel_script.voiceover, reel_script.on_screen_text, etc.
+
 ## Platform Conventions — HARD RULES
 
 ### INSTAGRAM
@@ -301,42 +321,42 @@ Given a single approved story angle and its editorial brief, you produce 2 disti
 
 ## CTA Rules — critical. The angle's cta_strength is "{cta_strength}". Match it exactly in every draft.
 
-- **no_cta**: No demo link, no "book a call", nothing transactional. The post earns trust on its own merit. The cta_line field MUST be null. Do not end with any product pitch, question about interest, or implicit invitation.
-- **soft_cta**: One gentle mention only. Examples: "If you're thinking about structured reporting in your academy, SWPI was built for exactly this." OR "Learn more at sportz-well.com if this resonates." No urgency, no "limited time", no "book a demo today".
-- **hard_cta**: One direct invitation. Examples: "Book a demo at sportz-well.com." or "Reply to this post to schedule a 20-minute walkthrough." Always include the URL sportz-well.com.
+- **no_cta**: No demo link, no book a call, nothing transactional. The post earns trust on its own merit. The cta_line field MUST be null. Do not end with any product pitch, question about interest, or implicit invitation.
+- **soft_cta**: One gentle mention only. Examples: If you are thinking about structured reporting in your academy, SWPI was built for exactly this. OR Learn more at sportz-well.com if this resonates. No urgency, no limited time, no book a demo today.
+- **hard_cta**: One direct invitation. Examples: Book a demo at sportz-well.com. or Reply to this post to schedule a 20-minute walkthrough. Always include the URL sportz-well.com.
 
   URL FORMATTING — CRITICAL:
   - The URL MUST appear in any CTA EXACTLY as: sportz-well.com
-  - Do NOT add "www." in front. Do NOT add "https://" in front. Do NOT use any other variant.
-  - CORRECT: "Book a demo at sportz-well.com."
-  - CORRECT: "Reply to schedule a walkthrough, or visit sportz-well.com."
-  - WRONG: "Book a demo at www.sportz-well.com."
-  - WRONG: "Visit https://sportz-well.com to learn more."
-  - WRONG: "https://www.sportz-well.com"
+  - Do NOT add www. in front. Do NOT add https:// in front. Do NOT use any other variant.
+  - CORRECT: Book a demo at sportz-well.com.
+  - CORRECT: Reply to schedule a walkthrough, or visit sportz-well.com.
+  - WRONG: Book a demo at www.sportz-well.com.
+  - WRONG: Visit https://sportz-well.com to learn more.
+  - WRONG: https://www.sportz-well.com
 
 ## Proof Point Rules
 
 - Use ONLY proof points explicitly listed in the angle's proof_points_used array. Never invent proof points.
 - If the angle's proof_points_used array is empty, do not reference any credentials or historical associations.
-- Proof points marked "Use sparingly" — any line referencing Achrekar, Tendulkar, or the Shardashram founding philosophy — must be framed institutionally, never as name-dropping:
-  - CORRECT: "grounded in the same disciplined coaching philosophy that shaped Mumbai's grassroots tradition"
-  - CORRECT: "built on a culture of structured, long-view development"
-  - CORRECT: "rooted in a coaching tradition that treated documentation and discipline as the foundation of player development"
-  - WRONG: "inspired by the coach of Sachin Tendulkar"
-  - WRONG: "from the academy that produced Sachin Tendulkar"
+- Proof points marked Use sparingly — any line referencing Achrekar, Tendulkar, or the Shardashram founding philosophy — must be framed institutionally, never as name-dropping:
+  - CORRECT: grounded in the same disciplined coaching philosophy that shaped Mumbai's grassroots tradition
+  - CORRECT: built on a culture of structured, long-view development
+  - CORRECT: rooted in a coaching tradition that treated documentation and discipline as the foundation of player development
+  - WRONG: inspired by the coach of Sachin Tendulkar
+  - WRONG: from the academy that produced Sachin Tendulkar
 
 ## Voice Rules
 
 - Brand voice: Expert, Structured, Purposeful
 - Use specific nouns over vague generalisations:
-  - "U-12 batter" not "young player"
-  - "video analysis session" not "training tool"
-  - "coach–parent progress report" not "communication"
-  - "Mumbai Under-16 selection trial" not "important event"
+  - U-12 batter not young player
+  - video analysis session not training tool
+  - coach–parent progress report not communication
+  - Mumbai Under-16 selection trial not important event
 - Banned words (hype mode): amazing, incredible, game-changing, revolutionary, transformative, powerful (as hype), world-class (as filler)
 - No celebrity drama, no national team politics, no supplement advice, no generic Western fitness content
 - India-specific framing where the angle calls for it — tournament structures, board acronyms, city academy contexts are all on-brand
-- Language: default to English. Do not use Hindi words, Hinglish, or transliterated cricket slang (e.g. "gully cricket", "maidan") unless the editorial brief explicitly calls for it. SWPI's audience is academy directors and coaches who read English business communication.
+- Language: default to English. Do not use Hindi words, Hinglish, or transliterated cricket slang (e.g. gully cricket, maidan) unless the editorial brief explicitly calls for it. SWPI's audience is academy directors and coaches who read English business communication.
 
 ## Variant Differentiation — MANDATORY, ENFORCED IN CODE
 
@@ -362,21 +382,21 @@ For each platform you target, you produce 2 variants. The two variants MUST be d
 ### Concrete checks before you submit
 
 Before writing each draft, complete this sentence in your head:
-"V1's hook is a [HOOK_MODE] from the [POV] perspective. V2 must use a different hook mode AND a different perspective."
+V1's hook is a [HOOK_MODE] from the [POV] perspective. V2 must use a different hook mode AND a different perspective.
 
-If V1 starts "Why does your U-12 batter improve faster in nets than in matches?" (`question_hook`, `coach_pov`), then V2 CANNOT start with a question, AND CANNOT be from the coach's perspective. A valid V2 might open: "Last Tuesday's Under-14 selection trial in Dadar produced 47 batters but only 3 wicket-keepers." (`statement_hook`, `academy_pov`).
+If V1 starts with a pointed question about U-12 batters from the coach's perspective (`question_hook`, `coach_pov`), then V2 CANNOT start with a question, AND CANNOT be from the coach's perspective. A valid V2 might open with a concrete statement about a Dadar selection trial from the academy's perspective (`statement_hook`, `academy_pov`).
 
 ### Forbidden — these patterns count as duplication
 
-- Same opening noun in V1 and V2 (e.g., both starting with "Your U-12 batter…")
-- Same opening verb (e.g., both starting with "Imagine…" or both starting with "Watch…")
+- Same opening noun in V1 and V2 (e.g., both starting with Your U-12 batter…)
+- Same opening verb (e.g., both starting with Imagine… or both starting with Watch…)
 - Same rhetorical mode even with different words (two questions, two scenarios, etc.)
 - Same perspective even with different content (both coach-centric, both parent-centric)
 - Paraphrases of the same insight in different sentence orders
 
 ### Cross-platform also applies
 
-If platform_fit is "both", you produce 4 drafts: IG V1, IG V2, FB V1, FB V2. The hook differentiation rule applies across ALL FOUR — not just within a single platform. IG V1's hook mode cannot equal FB V1's hook mode. Pick 4 different combinations from the hook × perspective grid.
+If platform_fit is both, you produce 4 drafts: IG V1, IG V2, FB V1, FB V2. The hook differentiation rule applies across ALL FOUR — not just within a single platform. IG V1's hook mode cannot equal FB V1's hook mode. Pick 4 different combinations from the hook × perspective grid.
 
 ### Declare your strategy
 
@@ -391,6 +411,7 @@ Both variants must remain faithful to the angle's editorial_brief — same core 
 ## Output Format
 
 Return ONLY the JSON object below. No markdown fences. No prose before or after the JSON.
+Output your final JSON once — do not revise, re-evaluate, or emit a second JSON block after reflection. If you change your mind mid-response, edit silently before you start writing JSON, not after.
 
 {{
   "drafts": [
@@ -426,7 +447,8 @@ IMPORTANT:
 - Set carousel_slides to null when content_format is not "carousel"
 - Set reel_script to null when content_format is not "reel_script"
 - Total drafts in the array must equal exactly {total_drafts} ({2} variants × {len(platforms)} platform(s): {", ".join(platforms)})
-- hook_strategy and perspective_focus are REQUIRED on every draft. Validation will fail otherwise."""
+- hook_strategy and perspective_focus are REQUIRED on every draft. Validation will fail otherwise.
+- Final reminder: NO double-quote characters inside any string value. Use single quotes for dialogue, rephrase for emphasis."""
 
 
 def _build_user_prompt(angle: dict, platforms: list[str]) -> str:
@@ -469,18 +491,30 @@ def _build_user_prompt(angle: dict, platforms: list[str]) -> str:
 
 Produce exactly {total_drafts} drafts ({2} variants per platform). Follow all platform conventions, CTA rules, proof-point rules, and — critically — the variant differentiation rules from the system prompt.
 
-Reminder: for every draft you MUST declare a hook_strategy and perspective_focus. Sibling variants on the same platform MUST use different values for BOTH fields. If platform_fit covers both platforms, all 4 drafts should use 4 distinct (hook_strategy, perspective_focus) combinations."""
+Reminder: for every draft you MUST declare a hook_strategy and perspective_focus. Sibling variants on the same platform MUST use different values for BOTH fields. If platform_fit covers both platforms, all 4 drafts should use 4 distinct (hook_strategy, perspective_focus) combinations.
+
+Final reminder: NO double-quote characters inside any string field. Use single quotes for dialogue. Rephrase to avoid quoted emphasis."""
 
 
 # ─── JSON parsing ─────────────────────────────────────────────────────────────
 
 def _parse_copywriter_json(text: str) -> dict[str, Any] | None:
-    """Extract and parse the JSON blob from the model's response.
+    """Extract and parse the JSON blob from the model's response. Four strategies.
 
-    Three extraction strategies tried in order, each with trailing-comma cleanup:
-      1. Content captured inside a ```(json)? ... ``` block
-      2. Raw text after stripping fences
-      3. Substring from the first { to the last }
+    Success criterion: parsed value is a dict containing a "drafts" key.
+
+    Strategy order:
+      1. Extract content from a markdown code fence (```json ... ```).
+      2. Strip any leading/trailing fence markers from the whole response.
+      3. Brace-extract: take original[first '{' : last '}'] as a single JSON candidate.
+      4. Multi-block scan: find every position where '{"drafts"' (in any whitespace form)
+         appears, parse each with json.JSONDecoder.raw_decode(), collect all valid blocks,
+         return the LAST one.
+
+    Strategy 4 (ported from the Editor agent) handles cases where Strategies 1–3 capture
+    too much context — long body strings, special characters, or model self-correction
+    patterns that produce two JSON blocks with prose between them. raw_decode isolates
+    each individual valid JSON object regardless of surrounding noise.
     """
     original   = text.strip()
     candidates: list[str] = []
@@ -510,6 +544,20 @@ def _parse_copywriter_json(text: str) -> dict[str, Any] | None:
                     return parsed
             except json.JSONDecodeError:
                 continue
+
+    # Strategy 4: scan for every {"drafts" start position, parse with raw_decode, keep last valid.
+    # Regex matches both compact ('{"drafts"') and pretty-printed ('{\n  "drafts"') forms.
+    decoder   = json.JSONDecoder()
+    all_valid: list[dict] = []
+    for m in re.finditer(r'\{[\s\r\n]*"drafts"', original):
+        try:
+            parsed, _ = decoder.raw_decode(original, m.start())
+            if isinstance(parsed, dict) and "drafts" in parsed:
+                all_valid.append(parsed)
+        except json.JSONDecodeError:
+            pass
+    if all_valid:
+        return all_valid[-1]
 
     return None
 
@@ -622,7 +670,6 @@ def _validate_drafts(
         perspective_focus = d.get("perspective_focus")
 
         if hook_strategy is not None and hook_strategy not in _VALID_DIFFERENTIATION_STRATEGIES:
-            # Could be valid perspective in wrong field; check before warning
             warnings.append(
                 f"Draft ({platform}, variant {variant}) declared "
                 f"hook_strategy='{hook_strategy}' which is not a recognised hook mode. "
