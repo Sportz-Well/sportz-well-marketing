@@ -100,7 +100,7 @@ Claude system prompt. Never hardcode brand content in agent code.**
 
 ## Current status
 
-**Last updated:** 2026-05-20 (Prompt 6 UI integration + spend ticker)
+**Last updated:** 2026-05-21 (Copywriter tuning + empirical verification of CROSS_VARIANT_DUPLICATION fix)
 
 - ✅ Project scaffold (Prompt 1): folders, `.gitignore`, `.env.example`, `requirements.txt`, `README.md`.
 - ✅ `services/anthropic_client.py` — thin wrapper exposing `ask()`, `ask_with_usage()`, and `ask_with_web_search()`.
@@ -156,8 +156,8 @@ Claude system prompt. Never hardcode brand content in agent code.**
     `get_angle_draft_coverage`, `get_approved_angles`, `get_drafts_library`,
     `update_draft_content`, `update_draft_status`, `write_drafts_for_all_approved`,
     `write_drafts_for_angle`.
-  - `drafts` table populated; 8 drafts exist in DB (IDs 1, 2, 3, 4, 5, 6, 11, 12 — IDs 7–10
-    do not exist, gap from prior deletions; do not assume sequential IDs).
+  - `drafts` table populated; as of 2026-05-21 contains 8 active draft rows (IDs 13–20 —
+    earlier IDs 1–12 superseded by today's regeneration work; do not assume sequential IDs).
   - Drafts page (`ui/pages/4_Drafts.py`) — three tabs:
     - Tab 1 (Generate Drafts): live counters for approved / drafted / waiting angles;
       "Generate ALL waiting angles" button + "Generate for single angle" picker; regenerate
@@ -204,8 +204,6 @@ Claude system prompt. Never hardcode brand content in agent code.**
   - System prompt preventive fix shipped: one-line "Output your final JSON once — no revisions,
     no prose" instruction added to stop self-correction prose at the source. Parser Strategy 4
     remains as belt-and-braces.
-  - All 8 drafts reviewed: 7 flagged, 1 clean (draft #11, Kirti FB V1 — first clean draft in
-    the system).
 - ✅ Editor UI page (`ui/pages/5_Editor.py`) — Prompt 6 UI integration, shipped 2026-05-20:
   - Three tabs matching the Strategy precedent.
   - **Tab A (Review Draft):** draft picker (unreviewed-first sort), status banner showing
@@ -227,28 +225,101 @@ Claude system prompt. Never hardcode brand content in agent code.**
     `count_reviews_total(product_id)`. Pattern matches Strategy: small counters in the agent
     module (Home page can consume them later); bigger presentation queries stay as `_`
     private helpers in the UI page.
-  - Smoke-tested end-to-end on 2026-05-20: cached-review path returns free instantly; live
-    Re-review of draft #1 produced Review #3 at $0.0302 and surfaced a new `HASHTAG_COUNT_HIGH`
-    issue (`#mumbaicricket` duplicate at indexes 2 and 6) that the previous two reviews missed.
-    Re-reviews can produce genuine new findings — not purely defensive.
 - ✅ Home page (`ui/app.py`) updated 2026-05-20: Drafts and Editor now listed as ✅ Ready;
   Media / Calendar / Orchestrator still ⏭ Prompt 7/8/9.
 
+### Prompt 5.5 — Copywriter tuning (2026-05-21): CROSS_VARIANT_DUPLICATION eliminated ✅
+
+**Problem statement (yesterday's signal):** Editor's Pipeline Overview showed 6 of 13 hard
+issues (46%) were `CROSS_VARIANT_DUPLICATION`. The Copywriter was generating IG and FB variants
+with byte-identical or near-paraphrase hooks.
+
+**Root cause analysis:** Four contributing factors identified.
+  1. All variants (up to 4 for platform_fit=both) generated in a single API call → the model
+     anchors on its first hook while writing subsequent ones, even with abstract differentiation
+     instructions in the prompt.
+  2. The original "Variant Differentiation" prompt section was a soft suggestion with no
+     forcing function. The model could claim it differentiated when it didn't.
+  3. No structural enforcement — no JSON field requiring the model to *declare* its
+     differentiation strategy.
+  4. Sibling drafts weren't shown to the model as concrete reference points to differ from.
+
+**Fix (took 3 iterations, all committed):**
+
+  1. **Commit `3864570` — Differentiation rules + declarations** (`agents/copywriter.py`):
+     Rewrote the "Variant Differentiation" section as a hard rule. Two new required JSON
+     fields per draft: `hook_strategy` (one of `question_hook` | `scenario_hook` |
+     `statement_hook` | `story_hook` | `framework_hook`) and `perspective_focus` (one of
+     `coach_pov` | `parent_pov` | `player_pov` | `academy_pov`). Python validates that
+     sibling variants on the same platform declare different values for both fields.
+     Cross-platform soft warning if any (hook, perspective) combination repeats across all
+     4 drafts. Declaration fields are validation-only — dropped before persistence,
+     no DB schema change.
+
+  2. **Commit `76e2f03` — JSON parse failure root-caused and fixed**: First test
+     generation after fix 1 returned valid JSON but failed to parse. Diagnostic script
+     (`scripts/_diagnose_copywriter_parse.py`, since deleted per convention) pinpointed
+     the issue: model wrote literal unescaped double-quote characters inside body string
+     values (e.g., `"He's doing well"` inside a body field). Fix: explicit ban on double
+     quotes inside any JSON string field, with named alternatives — single quotes for
+     dialogue, em-dash framing for emphasis. Stripped instructional double quotes from
+     the prompt's own examples to prevent pattern-mimicking.
+
+  3. **Parser Strategy 4 ported from Editor** (also in `76e2f03`): Added
+     `re.finditer(r'\{[\s\r\n]*"drafts"')` + `JSONDecoder.raw_decode()` as a 4th parsing
+     strategy, mirroring the Editor's robust parser. Belt-and-braces in case the
+     double-quote ban ever leaks.
+
+**Empirical verification — 8 newly-generated drafts regenerated 2026-05-21:**
+
+| Draft  | Angle               | Verdict     | Hard issues |
+|--------|---------------------|-------------|-------------|
+| #13 IG V1 | 1 (WhatsApp)     | 🚩 Flagged  | 1 (CAPTION_TOO_LONG by 4 words) |
+| #14 IG V2 | 1 (WhatsApp)     | ✅ Clean    | 0 |
+| #15 FB V1 | 1 (WhatsApp)     | ✅ Clean    | 0 |
+| #16 FB V2 | 1 (WhatsApp)     | ✅ Clean    | 0 |
+| #17 FB V1 | 7 (KIRTI)        | ✅ Clean    | 0 |
+| #18 FB V2 | 7 (KIRTI)        | ✅ Clean    | 0 |
+| #19 IG V1 | 10 (Achrekar)    | 🚩 Flagged  | 2 (PROOF_POINT_LINEAGE_DRIFT + HINGLISH_UNCALLED "maidan") |
+| #20 IG V2 | 10 (Achrekar)    | 🚩 Flagged  | 1 (PROOF_POINT_LINEAGE_DRIFT) |
+
+**Results vs. baseline (pre-fix pipeline-wide):**
+- CROSS_VARIANT_DUPLICATION: **0 / 4 hard issues (0%)** ← previously 6 / 13 (46%)
+- Clean rate: **5 / 8 drafts (63%)** ← previously 1 / 8 (12%)
+- Total cost for the patch + verification: ~$0.35 (3 regenerations + 8 Editor reviews + 1 failed call)
+
+**The Copywriter patch is fully validated.** Both within-platform AND cross-platform
+differentiation now work — all 4 drafts on angle 1 used 4 distinct (hook_strategy,
+perspective_focus) combinations.
+
 Every future prompt should end by updating this section.
 
-## Key signal for next session
+## Key signals for next session
 
-**`CROSS_VARIANT_DUPLICATION` is the #1 issue code** — 6 occurrences across 13 hard issues
-flagged by the Editor so far (46%). The Copywriter is generating Instagram and Facebook
-variants of the same story angle with hooks that are byte-identical or near-identical
-paraphrases. This is the systemic gap the Editor was built to expose. Surfaced in the
-Editor's Pipeline Overview tab on 2026-05-20.
+**Signal 1 — Angle 10 has a content problem, not a Copywriter problem.**
+Both Instagram V1 and V2 of angle 10 (Achrekar / Structured Development) violated
+PROOF_POINT_LINEAGE_DRIFT with phrases like "Our founder trained inside that culture."
+Three regenerations (yesterday + today V1 + today V2) all produced personal-lineage
+claims about the founder. The Copywriter system prompt already has the institutional-only
+rule. The root cause is almost certainly in angle 10's `editorial_brief` or
+`proof_points_used` field in `story_angles` — those are pulling the model toward the
+violation. **Fix is in Strategy page (edit the angle), not in `agents/copywriter.py`.**
+Cheap, fast, no API cost. Verify by regenerating angle 10's drafts after the angle edit.
+
+**Signal 2 — HINGLISH_UNCALLED surfaced.** Draft #19 used "maidan" without the angle's
+editorial brief explicitly allowing it. Editor caught correctly. Low frequency (1/8 drafts),
+isolated to one draft on angle 10. Monitor — don't act yet.
 
 ## TODOs and known minor issues
 
+- **Drafts page: timestamp display on each draft card** — user requested 2026-05-20 and
+  again 2026-05-21. Currently shows draft body, hashtags, image brief, action buttons —
+  no `created_at` or `updated_at` visible. Data exists in DB. UI gap. Small fix (~15 min
+  in `ui/pages/4_Drafts.py`).
 - **Drafts agent documentation thin:** The Prompt 5 section above lists what's visible
   through imports and UI behaviour. A future session should review `agents/copywriter.py`
-  directly and document the prompt strategy, quota handling, and edge cases.
+  directly and document the prompt strategy, quota handling, and edge cases — especially
+  now that the system prompt has grown substantially with Prompt 5.5 additions.
 - **Drop redundant index:** `idx_editor_reviews_draft_review` on `(draft_id, review_number)`
   is redundant with the `sqlite_autoindex` created by the new `UNIQUE` constraint. Drop it
   in a future schema cleanup pass.
@@ -259,43 +330,41 @@ Editor's Pipeline Overview tab on 2026-05-20.
 - **Home page widget for unreviewed drafts:** `count_unreviewed_drafts(product_id)` now
   exists in `agents/editor.py` but is not yet consumed by the Home page. Small UX
   improvement, low priority.
+- **Editor reviews for old drafts #1–12 are now orphan rows** — the old drafts were deleted
+  by today's regeneration. Reviews still in `editor_reviews` table; harmless but slightly
+  noisy in Pipeline Overview's all-time issue-code histogram. Cleanup can wait for a future
+  schema-cleanup pass.
 
-## Next steps (2026-05-21 onwards)
+## Next steps (2026-05-22 onwards)
 
-**Priority: Copywriter tuning to address `CROSS_VARIANT_DUPLICATION`.**
+**Priority 1: Fix angle 10's editorial brief to eliminate PROOF_POINT_LINEAGE_DRIFT.**
 
-The Editor's Pipeline Overview surfaced a clear signal: 6 of 13 hard issues are
-`CROSS_VARIANT_DUPLICATION`. The Copywriter is generating Instagram and Facebook variants
-of the same story angle with hooks that are byte-identical or near-identical paraphrases.
-This is exactly the systemic gap the Editor was built to expose.
+This is a 15-minute, $0 fix in the Strategy page UI. Open angle 10 in the Story Angles
+Library, edit the `editorial_brief` and/or `proof_points_used` field to remove anything
+that's pulling the model toward personal-lineage framing of the founder. Then regenerate
+angle 10's drafts via Drafts page and re-review with Editor. Success criterion: PROOF_POINT_LINEAGE_DRIFT
+drops to 0 on the new drafts.
 
-1. **Investigate root cause** (~30 min) — Read `agents/copywriter.py` and the system prompt.
-   Determine whether duplication is a prompt issue (no explicit "vary the hook meaningfully
-   between variants" instruction) or a structural issue (e.g., both variants generated in the
-   same API call sharing context).
+**Priority 2: Prompt 7 — Media agent + Media page.**
 
-2. **Patch the Copywriter** (~45 min) — Add explicit variant-differentiation rules to the
-   system prompt. Likely something like: "Each variant must lead with a different angle —
-   different hook noun, different opening verb, different rhetorical mode (question vs.
-   statement vs. story-opener). Variants on different platforms should differ further in
-   length, hashtag mix, and tone."
+Build the Media agent that takes draft `image_brief` fields as input and produces structured
+media suggestions for each draft. ~2-3 hour session of plan-and-paste. Follow the same pattern
+established by the Researcher/Strategist/Copywriter/Editor agents:
 
-3. **Regenerate one angle's drafts and verify** (~30 min) — Pick one approved angle that
-   currently has duplicated variants, regenerate its drafts with the patched Copywriter,
-   run the Editor on the new drafts. If `CROSS_VARIANT_DUPLICATION` count drops to zero for
-   that angle, the fix works.
+  - `agents/media.py` with public API matching the precedent
+  - `ui/pages/6_Media.py` with three tabs (Run / Library / Pipeline Overview)
+  - api_log integration for spend tracking
+  - Failed-response logging
+  - Match Editor's robust JSON parser (4 strategies)
 
-4. **Decide on backfill strategy** — Either regenerate all existing drafts (clean slate,
-   throws away $X of past work) or accept that historical drafts have the issue but new ones
-   won't (cheaper, but pipeline overview metrics stay noisy for a while).
-
-**Secondary, when Copywriter tuning is done:**
-- Continue to Prompt 7 (Media agent) or Prompt 8 (Scheduler), whichever provides more
-  end-to-end value.
-- Home page widget: "Drafts awaiting review" using `count_unreviewed_drafts()` — small UX
-  improvement, low priority.
-- Drop the redundant `idx_editor_reviews_draft_review` index in a future schema cleanup pass.
-- Document the Copywriter agent's internals in CLAUDE.md (currently thin).
+**Secondary backlog (do these between/around Prompts 7-9):**
+- Drafts page timestamp display (see TODO above) — 15 min UX win, user has flagged twice.
+- Document the Copywriter agent's internals in CLAUDE.md (currently thin) — Prompt 5.5
+  added substantial system-prompt content that deserves explicit documentation.
+- Prompt 8 — Scheduler agent + Calendar page.
+- Prompt 9 — Orchestrator page (run full pipeline end-to-end with one click).
+- Home page widget: "Drafts awaiting review" using `count_unreviewed_drafts()`.
+- Drop the redundant `idx_editor_reviews_draft_review` index.
 
 ## Budget
 
@@ -303,5 +372,12 @@ This is exactly the systemic gap the Editor was built to expose.
   two failed responses from the log and inserting reviews manually rather than re-running
   the API).
 - **2026-05-20:** ~$0.03 (one Re-review test of draft #1 during Editor UI smoke-test).
-- **Editor agent all-time (as of 2026-05-20):** $0.3089 across 11 calls. Average cost per
-  call: $0.0281. Visible in Editor → Pipeline Overview → Editor spend section.
+- **2026-05-21 (Prompt 5.5):** ~$0.35 total across the day:
+  - First failed regeneration of angle 1 (JSON parse failure): ~$0.05
+  - Second successful regeneration of angle 1 (4 drafts): ~$0.10
+  - Regeneration of angle 7 (2 drafts): ~$0.05
+  - Regeneration of angle 10 (2 drafts): ~$0.05
+  - Editor reviews of drafts #13–20: ~$0.21 total ($0.0224 + $0.0273 + $0.0230 + $0.0212
+    + $0.0209 + $0.0208 + $0.0266 + $0.0297)
+- **Editor agent all-time (as of 2026-05-21):** ~$0.52 across ~19 calls. Average cost
+  per call: ~$0.0274. Visible in Editor → Pipeline Overview → Editor spend section.
