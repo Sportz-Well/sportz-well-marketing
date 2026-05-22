@@ -19,6 +19,7 @@ from db.init_db import init_db
 from services.brand_context import get_active_product, get_brand_profile
 from services.database import get_connection
 from agents.strategist import count_approved_angles
+from agents.editor import count_unreviewed_drafts
 
 # Ensure the DB exists (idempotent — safe on every page load).
 init_db()
@@ -92,16 +93,30 @@ for name, _page, status, description in modules:
 
 st.divider()
 
-# ─── Approved angles widget ───────────────────────────────────────────────────
+# ─── Pipeline status widgets ──────────────────────────────────────────────────
 
 if product is not None:
-    approved_n = count_approved_angles(product["product_id"])
+    product_id = product["product_id"]
+
+    approved_n    = count_approved_angles(product_id)
+    unreviewed_n  = count_unreviewed_drafts(product_id)
+
     if approved_n > 0:
         st.success(
             f"**{approved_n} approved angle{'s' if approved_n != 1 else ''} ready for drafting.** "
             "Go to [Strategy → Story Angles Library](/Strategy) to review them.",
             icon="✅",
         )
+
+    if unreviewed_n > 0:
+        st.warning(
+            f"**{unreviewed_n} draft{'s' if unreviewed_n != 1 else ''} awaiting Editor review.** "
+            "Go to [Editor](/Editor) to review them.",
+            icon="📋",
+        )
+    elif approved_n > 0:
+        # Only show "all clear" if there's something in the pipeline
+        st.info("All drafts have been reviewed.", icon="✅")
 
 st.divider()
 
