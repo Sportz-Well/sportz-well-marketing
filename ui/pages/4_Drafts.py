@@ -52,6 +52,28 @@ def _status_label(status: str) -> str:
     }.get(status, status)
 
 
+def _format_ts(ts: str | None) -> str:
+    """Format a SQLite timestamp string to a readable short form.
+    Input:  '2026-05-21 14:32:07' or '2026-05-21T14:32:07' or None
+    Output: '21 May 2026, 2:32 pm' or ''
+    Windows-safe: avoids %-d / %-I format codes.
+    """
+    if not ts:
+        return ""
+    try:
+        from datetime import datetime
+        cleaned = ts[:19].replace("T", " ")
+        dt = datetime.strptime(cleaned, "%Y-%m-%d %H:%M:%S")
+        day   = str(dt.day)                          # no leading zero
+        month = dt.strftime("%b %Y")
+        hour  = dt.hour % 12 or 12                   # 12-hour, no leading zero
+        mins  = dt.strftime("%M")
+        ampm  = "am" if dt.hour < 12 else "pm"
+        return f"{day} {month}, {hour}:{mins} {ampm}"
+    except Exception:
+        return ts[:16]  # fallback: return raw truncated string
+
+
 def _render_draft_card(draft: dict) -> None:
     draft_id        = draft["id"]
     platform        = draft["platform"]
@@ -66,13 +88,15 @@ def _render_draft_card(draft: dict) -> None:
     image_brief     = draft.get("image_brief") or ""
     word_count      = draft.get("word_count") or 0
     char_count      = draft.get("char_count") or 0
+    created_at      = draft.get("created_at")
+    updated_at      = draft.get("updated_at")
 
     edit_key = f"editing_{draft_id}"
     if edit_key not in st.session_state:
         st.session_state[edit_key] = False
 
     with st.container(border=True):
-        # Card header
+        # Card header row 1: platform/variant + word count
         h_left, h_right = st.columns([3, 1])
         with h_left:
             st.markdown(
@@ -81,6 +105,15 @@ def _render_draft_card(draft: dict) -> None:
             )
         with h_right:
             st.caption(f"{word_count} words / {char_count} chars")
+
+        # Card header row 2: timestamps
+        ts_parts = []
+        if created_at:
+            ts_parts.append(f"Created: {_format_ts(created_at)}")
+        if updated_at and updated_at != created_at:
+            ts_parts.append(f"Updated: {_format_ts(updated_at)}")
+        if ts_parts:
+            st.caption(" · ".join(ts_parts))
 
         # Headline
         if headline:
