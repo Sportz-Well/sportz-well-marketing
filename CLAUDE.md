@@ -100,7 +100,7 @@ Claude system prompt. Never hardcode brand content in agent code.**
 
 ## Current status
 
-**Last updated:** 2026-05-21 (Copywriter tuning + empirical verification of CROSS_VARIANT_DUPLICATION fix)
+**Last updated:** 2026-05-22 (Angle 10 fix + UX cleanup session)
 
 - ✅ Project scaffold (Prompt 1): folders, `.gitignore`, `.env.example`, `requirements.txt`, `README.md`.
 - ✅ `services/anthropic_client.py` — thin wrapper exposing `ask()`, `ask_with_usage()`, and `ask_with_web_search()`.
@@ -150,206 +150,199 @@ Claude system prompt. Never hardcode brand content in agent code.**
   - Tab B: angles grouped by theme; filters by status/platform/phase/funnel; Approve/Reject/Edit buttons; inline edit form; Sources and Editorial Brief expanders.
   - Tab C: pipeline counts by status, platform breakdown, phase-tag distribution with quota check, CTA distribution with overload warning.
 - ✅ Home page: "Approved angles ready for drafting" widget added; Strategy listed as ✅ Ready.
-- ✅ Prompt 5 — Copywriter agent + Drafts page (documentation thin — agent module not deeply reviewed yet):
+- ✅ Prompt 5 — Copywriter agent + Drafts page:
   - `agents/copywriter.py` — generates platform-specific drafts from approved story angles.
-  - Public API observed via `ui/pages/4_Drafts.py` imports: `count_draft_stats`,
-    `get_angle_draft_coverage`, `get_approved_angles`, `get_drafts_library`,
-    `update_draft_content`, `update_draft_status`, `write_drafts_for_all_approved`,
-    `write_drafts_for_angle`.
-  - `drafts` table populated; as of 2026-05-21 contains 8 active draft rows (IDs 13–20 —
-    earlier IDs 1–12 superseded by today's regeneration work; do not assume sequential IDs).
+  - Public API: `count_draft_stats`, `get_angle_draft_coverage`, `get_approved_angles`,
+    `get_drafts_library`, `update_draft_content`, `update_draft_status`,
+    `write_drafts_for_all_approved`, `write_drafts_for_angle`.
+  - `drafts` table populated. Do not assume sequential IDs — regeneration creates new rows.
   - Drafts page (`ui/pages/4_Drafts.py`) — three tabs:
-    - Tab 1 (Generate Drafts): live counters for approved / drafted / waiting angles;
-      "Generate ALL waiting angles" button + "Generate for single angle" picker; regenerate
-      checkbox to overwrite existing drafts.
-    - Tab 2 (Drafts Library): status / platform / angle filters; grouped by angle; per-draft
-      card with headline, body (read-only text area), CTA, hashtags, carousel slides expander,
-      reel script expander, image brief; Approve / Reject / Edit action row with inline edit form.
-    - Tab 3 (Pipeline Overview): status breakdown (draft/approved/rejected/edited), platform
-      split, per-angle coverage progress bar with target of 2 drafts/platform (4 if "both").
+    - Tab 1 (Generate Drafts): live counters; "Generate ALL" + single-angle picker; regenerate checkbox.
+    - Tab 2 (Drafts Library): filters by status/platform/angle; grouped by angle; per-draft card
+      with headline, body, CTA, hashtags, carousel, reel script, image brief, timestamps; Approve/Reject/Edit.
+    - Tab 3 (Pipeline Overview): status breakdown, platform split, per-angle coverage progress bar.
   - Cost note in UI: ~₹4–10 per angle (2 variants per target platform, single API call).
-  - **Detailed agent internals (prompt strategy, quota handling, edge cases) not yet documented
-    in this file** — flesh out in a future session.
 - ✅ Editor agent (`agents/editor.py`) — fourth agent in the pipeline:
-  - V1 flag-only: identifies issues against an explicit ruleset, never rewrites or suggests
-    replacement text. `suggestions_json` always stored as `'[]'`.
-  - Reads draft + source angle + sibling variants; constructs a single JSON payload as the user
-    message. NULL or unparseable `hashtags` raises a hard error rather than masking it (would
-    manufacture a false `HASHTAG_COUNT_LOW` flag).
-  - Public API: `review_draft(draft_id)` returns the latest cached review for free if one
-    exists, else hits the API. `rereview_draft(draft_id)` always hits the API and inserts a
-    new review row with `review_number = previous_max + 1`.
-  - 10 checks total: 8 hard (HYPE_WORD, URL_FORMAT, CAPTION_TOO_LONG/SHORT, HASHTAG_COUNT_LOW/HIGH,
+  - V1 flag-only: identifies issues against an explicit ruleset, never rewrites.
+  - 10 checks: 8 hard (HYPE_WORD, URL_FORMAT, CAPTION_TOO_LONG/SHORT, HASHTAG_COUNT_LOW/HIGH,
     PROOF_POINT_LINEAGE_DRIFT, HINGLISH_UNCALLED, MISSING_REQUIRED_FIELD, CROSS_VARIANT_DUPLICATION)
-    and 2 soft (GENERIC_HOOK, WEAK_CTA_BUILDUP). Issue schema: code, severity, field, evidence,
-    message. Verdict computed in Python (clean if no issues, flagged otherwise) — never trusted
-    from the model.
-  - Atomic `review_number` allocation: MAX query + INSERT in the same connection to avoid races.
-  - Robust JSON parser with 4 strategies; Strategy 4 uses `re.finditer(r'\{[\s\r\n]*"issues"')`
-    plus `JSONDecoder.raw_decode` to handle the model self-correction pattern (two JSON blocks
-    with reasoning prose between).
-  - Issue validation: enforces required keys (code/severity/field/evidence/message), validates
-    severity ∈ {hard, soft}, validates field ∈ {hook, body, cta_line, hashtags, image_brief,
-    headline, overall}. Dropped issues are logged to `data/editor_failed_responses.log` and
-    printed to stderr — nothing silently discarded.
-  - `editor_reviews` schema: `UNIQUE(draft_id, review_number)` enforced via table-recreation
-    migration (SQLite does not support ALTER TABLE ADD CONSTRAINT).
-  - Operational tooling: `scripts/recover_editor_log.py` parses
-    `data/editor_failed_responses.log` and reconstructs reviews from logged raw responses;
-    imports `_parse_editor_json` and `_validate_issues` directly from `agents/editor.py`
-    (no copy-paste duplication).
-  - Parser smoke tests persisted: 18 tests in `tests/test_editor_parser.py`, all passing.
-    `pytest.ini` configured at project root with `pythonpath = .` so tests can import
-    `agents.editor` cleanly.
-  - System prompt preventive fix shipped: one-line "Output your final JSON once — no revisions,
-    no prose" instruction added to stop self-correction prose at the source. Parser Strategy 4
-    remains as belt-and-braces.
-- ✅ Editor UI page (`ui/pages/5_Editor.py`) — Prompt 6 UI integration, shipped 2026-05-20:
-  - Three tabs matching the Strategy precedent.
-  - **Tab A (Review Draft):** draft picker (unreviewed-first sort), status banner showing
-    review count and latest verdict, two-button pattern:
-    `Review (cached if exists)` calls `review_draft()` and is free for already-reviewed drafts;
-    `Re-review (force new API call)` calls `rereview_draft()` and always hits the API
-    (~$0.03 per call). Issues rendered as red/yellow-bordered cards grouped by severity.
-  - **Tab B (Reviews Library):** four filters (verdict, platform, issues, sort); one expander
-    per draft showing the latest review's issues inline; nested `📜 Full review history`
-    sub-expander shows every review in chronological order with verdict, timestamp, cost, and
-    full issue list (audit trail built-in). Per-draft Re-review button.
-  - **Tab C (Pipeline Overview):** review coverage (total / reviewed / unreviewed / total
-    reviews), verdict distribution with clean-rate percentage, issue severity breakdown,
-    top-10 issue codes ranked by frequency, drafts-re-reviewed warning, and Editor spend
-    ticker (today / this month / all time / total calls / average cost per call / recent
-    20 Editor calls expander with per-call status and notes).
-  - Three new public helpers added to `agents/editor.py` for UI/dashboard consumption:
-    `get_last_run_info(product_id)`, `count_unreviewed_drafts(product_id)`,
-    `count_reviews_total(product_id)`. Pattern matches Strategy: small counters in the agent
-    module (Home page can consume them later); bigger presentation queries stay as `_`
-    private helpers in the UI page.
-- ✅ Home page (`ui/app.py`) updated 2026-05-20: Drafts and Editor now listed as ✅ Ready;
-  Media / Calendar / Orchestrator still ⏭ Prompt 7/8/9.
+    and 2 soft (GENERIC_HOOK, WEAK_CTA_BUILDUP).
+  - Robust JSON parser with 4 strategies; Strategy 4 uses raw_decode for self-correction pattern.
+  - Public API: `review_draft()`, `rereview_draft()`, `get_last_run_info()`,
+    `count_unreviewed_drafts()`, `count_reviews_total()`.
+  - Parser smoke tests: 18 tests in `tests/test_editor_parser.py`, all passing.
+- ✅ Editor UI page (`ui/pages/5_Editor.py`) — three tabs (Review / Library / Pipeline Overview).
+- ✅ Prompt 5.5 — Copywriter tuning (see dedicated section below).
+- ✅ Angle 10 content fix (2026-05-22) — see dedicated section below.
+- ✅ UX improvements (2026-05-22):
+  - Draft cards now show `created_at` and `updated_at` timestamps (`ui/pages/4_Drafts.py`).
+  - Home page now shows "N drafts awaiting Editor review" warning widget using
+    `count_unreviewed_drafts()` from `agents/editor.py`.
+- ✅ DB cleanup (2026-05-22): dropped redundant index `idx_editor_reviews_draft_review`
+  (redundant with `sqlite_autoindex` created by the `UNIQUE(draft_id, review_number)` constraint).
+
+---
 
 ### Prompt 5.5 — Copywriter tuning (2026-05-21): CROSS_VARIANT_DUPLICATION eliminated ✅
 
-**Problem statement (yesterday's signal):** Editor's Pipeline Overview showed 6 of 13 hard
-issues (46%) were `CROSS_VARIANT_DUPLICATION`. The Copywriter was generating IG and FB variants
-with byte-identical or near-paraphrase hooks.
+**Problem statement:** Editor's Pipeline Overview showed 6 of 13 hard issues (46%) were
+`CROSS_VARIANT_DUPLICATION`. The Copywriter was generating IG and FB variants with
+byte-identical or near-paraphrase hooks.
 
 **Root cause analysis:** Four contributing factors identified.
-  1. All variants (up to 4 for platform_fit=both) generated in a single API call → the model
-     anchors on its first hook while writing subsequent ones, even with abstract differentiation
-     instructions in the prompt.
-  2. The original "Variant Differentiation" prompt section was a soft suggestion with no
-     forcing function. The model could claim it differentiated when it didn't.
-  3. No structural enforcement — no JSON field requiring the model to *declare* its
-     differentiation strategy.
-  4. Sibling drafts weren't shown to the model as concrete reference points to differ from.
+  1. All variants generated in a single API call → model anchors on first hook.
+  2. Soft differentiation suggestion with no forcing function.
+  3. No structural enforcement — no JSON field requiring declared differentiation strategy.
+  4. Sibling drafts not shown as reference points.
 
-**Fix (took 3 iterations, all committed):**
+**Fix (3 iterations, all committed):**
 
-  1. **Commit `3864570` — Differentiation rules + declarations** (`agents/copywriter.py`):
-     Rewrote the "Variant Differentiation" section as a hard rule. Two new required JSON
-     fields per draft: `hook_strategy` (one of `question_hook` | `scenario_hook` |
-     `statement_hook` | `story_hook` | `framework_hook`) and `perspective_focus` (one of
-     `coach_pov` | `parent_pov` | `player_pov` | `academy_pov`). Python validates that
-     sibling variants on the same platform declare different values for both fields.
-     Cross-platform soft warning if any (hook, perspective) combination repeats across all
-     4 drafts. Declaration fields are validation-only — dropped before persistence,
-     no DB schema change.
+  1. **Commit `3864570`:** Two new required JSON fields per draft: `hook_strategy`
+     (question_hook | scenario_hook | statement_hook | story_hook | framework_hook) and
+     `perspective_focus` (coach_pov | parent_pov | player_pov | academy_pov). Python
+     validates sibling variants on same platform declare different values for both.
+     Declaration fields are validation-only — dropped before persistence, no DB schema change.
 
-  2. **Commit `76e2f03` — JSON parse failure root-caused and fixed**: First test
-     generation after fix 1 returned valid JSON but failed to parse. Diagnostic script
-     (`scripts/_diagnose_copywriter_parse.py`, since deleted per convention) pinpointed
-     the issue: model wrote literal unescaped double-quote characters inside body string
-     values (e.g., `"He's doing well"` inside a body field). Fix: explicit ban on double
-     quotes inside any JSON string field, with named alternatives — single quotes for
-     dialogue, em-dash framing for emphasis. Stripped instructional double quotes from
-     the prompt's own examples to prevent pattern-mimicking.
+  2. **Commit `76e2f03`:** Banned literal unescaped double-quote characters inside body
+     string values (root cause of parse failures). Named alternatives: single quotes for
+     dialogue, em-dash for emphasis. Parser Strategy 4 ported from Editor as belt-and-braces.
 
-  3. **Parser Strategy 4 ported from Editor** (also in `76e2f03`): Added
-     `re.finditer(r'\{[\s\r\n]*"drafts"')` + `JSONDecoder.raw_decode()` as a 4th parsing
-     strategy, mirroring the Editor's robust parser. Belt-and-braces in case the
-     double-quote ban ever leaks.
+**Empirical result (8 drafts):**
+- CROSS_VARIANT_DUPLICATION: 0/4 hard issues (0%) ← was 6/13 (46%)
+- Clean rate: 5/8 drafts (63%) ← was 1/8 (12%)
 
-**Empirical verification — 8 newly-generated drafts regenerated 2026-05-21:**
+---
 
-| Draft  | Angle               | Verdict     | Hard issues |
-|--------|---------------------|-------------|-------------|
-| #13 IG V1 | 1 (WhatsApp)     | 🚩 Flagged  | 1 (CAPTION_TOO_LONG by 4 words) |
-| #14 IG V2 | 1 (WhatsApp)     | ✅ Clean    | 0 |
-| #15 FB V1 | 1 (WhatsApp)     | ✅ Clean    | 0 |
-| #16 FB V2 | 1 (WhatsApp)     | ✅ Clean    | 0 |
-| #17 FB V1 | 7 (KIRTI)        | ✅ Clean    | 0 |
-| #18 FB V2 | 7 (KIRTI)        | ✅ Clean    | 0 |
-| #19 IG V1 | 10 (Achrekar)    | 🚩 Flagged  | 2 (PROOF_POINT_LINEAGE_DRIFT + HINGLISH_UNCALLED "maidan") |
-| #20 IG V2 | 10 (Achrekar)    | 🚩 Flagged  | 1 (PROOF_POINT_LINEAGE_DRIFT) |
+### Angle 10 content fix (2026-05-22): PROOF_POINT_LINEAGE_DRIFT eliminated ✅
 
-**Results vs. baseline (pre-fix pipeline-wide):**
-- CROSS_VARIANT_DUPLICATION: **0 / 4 hard issues (0%)** ← previously 6 / 13 (46%)
-- Clean rate: **5 / 8 drafts (63%)** ← previously 1 / 8 (12%)
-- Total cost for the patch + verification: ~$0.35 (3 regenerations + 8 Editor reviews + 1 failed call)
+**Problem statement:** All draft attempts for angle 10 ("What the Achrekar Academy Taught
+About Structured Development") were flagged for PROOF_POINT_LINEAGE_DRIFT. The model kept
+writing phrases like "Our founder trained in that environment" or "SWPI was designed from
+within that same philosophy."
 
-**The Copywriter patch is fully validated.** Both within-platform AND cross-platform
-differentiation now work — all 4 drafts on angle 1 used 4 distinct (hook_strategy,
-perspective_focus) combinations.
+**Root cause:** Three problems in angle 10's `story_angles` data (not in agent code):
+  1. `angle_description` contained "The founder trained in that environment." — treated as
+     a fact to honour.
+  2. `proof_points_used` was a personal-lineage statement formatted as a proof point:
+     "Founder trained at Shardashram under Ramakant Achrekar alongside Sachin Tendulkar".
+  3. `editorial_brief` said "philosophical, not name-dropping" but proof point contradicted it.
 
-Every future prompt should end by updating this section.
+**Fix (all data edits via Strategy page UI + one-shot scripts, $0 API cost):**
+  1. Deleted "The founder trained in that environment." sentence from `angle_description`.
+  2. Replaced `proof_points_used` with: "Structured, documented, evidence-based coaching
+     methodology — where every session has a purpose and every correction has a record."
+  3. Added two hard rules to `editorial_brief`:
+     - "Hard rule: do not state or imply that the founder personally trained at Shardashram
+       or with Achrekar. Frame all Shardashram/Achrekar references as institutional history."
+     - "Hard rule: do not write any sentence that frames SWPI as designed from, built upon,
+       or inspired by the Shardashram philosophy. SWPI's methodology stands on its own."
 
-## Key signals for next session
+**Result:** Both new drafts (#25, #26) passed Editor with 0 hard, 0 soft issues. ✅
 
-**Signal 1 — Angle 10 has a content problem, not a Copywriter problem.**
-Both Instagram V1 and V2 of angle 10 (Achrekar / Structured Development) violated
-PROOF_POINT_LINEAGE_DRIFT with phrases like "Our founder trained inside that culture."
-Three regenerations (yesterday + today V1 + today V2) all produced personal-lineage
-claims about the founder. The Copywriter system prompt already has the institutional-only
-rule. The root cause is almost certainly in angle 10's `editorial_brief` or
-`proof_points_used` field in `story_angles` — those are pulling the model toward the
-violation. **Fix is in Strategy page (edit the angle), not in `agents/copywriter.py`.**
-Cheap, fast, no API cost. Verify by regenerating angle 10's drafts after the angle edit.
+---
 
-**Signal 2 — HINGLISH_UNCALLED surfaced.** Draft #19 used "maidan" without the angle's
-editorial brief explicitly allowing it. Editor caught correctly. Low frequency (1/8 drafts),
-isolated to one draft on angle 10. Monitor — don't act yet.
+## Copywriter agent internals (`agents/copywriter.py`)
+
+**Note:** This section documents the agent as of Prompt 5.5. Review the source file if
+behaviour has changed since.
+
+### System prompt structure
+
+The Copywriter system prompt has four main sections injected at runtime:
+
+1. **Brand context block** — injected via `build_brand_context_prompt(product_id)`.
+   Contains voice, proof points, do/don't rules, CTA guidance. Never hardcoded.
+
+2. **Platform rules block** — per-platform word limits, hashtag counts, format constraints:
+   - Instagram single_image: 150–220 words body, 8–15 hashtags
+   - Facebook: 80–150 words body, 3–5 hashtags
+   - Carousel and Reel formats have their own structural requirements.
+
+3. **Variant differentiation rules** (added Prompt 5.5):
+   - Hard rule: sibling variants on the same platform MUST declare different `hook_strategy`
+     AND different `perspective_focus`.
+   - Five hook strategies: question_hook, scenario_hook, statement_hook, story_hook, framework_hook.
+   - Four perspective focuses: coach_pov, parent_pov, player_pov, academy_pov.
+   - Cross-platform soft warning if any (hook, perspective) combination repeats across all 4 drafts.
+
+4. **JSON format rules** (added Prompt 5.5):
+   - Explicit ban on double-quote characters inside string field values.
+   - Named alternatives: single quotes for dialogue, em-dash (—) for emphasis.
+   - "Output your final JSON once — no revisions, no prose" to prevent self-correction pattern.
+
+### JSON output schema (per draft)
+
+```json
+{
+  "drafts": [
+    {
+      "platform": "instagram",
+      "variant_number": 1,
+      "hook_strategy": "statement_hook",
+      "perspective_focus": "coach_pov",
+      "headline": "...",
+      "body": "...",
+      "cta_line": "...",
+      "hashtags": ["#tag1", "#tag2"],
+      "image_brief": "...",
+      "carousel_slides": null,
+      "reel_script": null
+    }
+  ]
+}
+```
+
+`hook_strategy` and `perspective_focus` are validated in Python then dropped before DB insert.
+`carousel_slides` and `reel_script` are null for single_image format; populated for their
+respective formats.
+
+### Robust JSON parser (4 strategies)
+
+  1. Direct `json.loads()` on the raw response.
+  2. Strip markdown fences (` ```json ` / ` ``` `) then `json.loads()`.
+  3. Remove trailing commas before `]` or `}`, then `json.loads()`.
+  4. `re.finditer(r'\{[\s\r\n]*"drafts"')` + `JSONDecoder.raw_decode()` — handles the
+     model self-correction pattern (two JSON blocks with reasoning prose between them).
+
+### Variant differentiation validation
+
+After parsing, Python checks:
+- For each platform: all variants must have distinct `hook_strategy` values.
+- For each platform: all variants must have distinct `perspective_focus` values.
+- Violation → hard error returned; drafts NOT saved; caller sees an error message.
+- Cross-platform: soft warning (logged, not blocking) if any (hook, perspective) pair repeats
+  across all drafts.
+
+### Spend tracking
+
+Every call logged to both `data/api_log.csv` and `api_log` DB table with
+`agent = 'copywriter'`. Visible in Drafts page Tab 3 and Editor spend section.
+
+---
 
 ## TODOs and known minor issues
 
-- **Drafts page: timestamp display on each draft card** — user requested 2026-05-20 and
-  again 2026-05-21. Currently shows draft body, hashtags, image brief, action buttons —
-  no `created_at` or `updated_at` visible. Data exists in DB. UI gap. Small fix (~15 min
-  in `ui/pages/4_Drafts.py`).
-- **Drafts agent documentation thin:** The Prompt 5 section above lists what's visible
-  through imports and UI behaviour. A future session should review `agents/copywriter.py`
-  directly and document the prompt strategy, quota handling, and edge cases — especially
-  now that the system prompt has grown substantially with Prompt 5.5 additions.
-- **Drop redundant index:** `idx_editor_reviews_draft_review` on `(draft_id, review_number)`
-  is redundant with the `sqlite_autoindex` created by the new `UNIQUE` constraint. Drop it
-  in a future schema cleanup pass.
+- **Drafts agent documentation** — now documented above. ✅
+- **Drafts page timestamps** — now showing on draft cards. ✅
+- **Home page unreviewed drafts widget** — now live. ✅
+- **Drop redundant index** — done. ✅
 - **`batch_review_remaining.py` implicit retry behaviour:** `review_draft()` returns a cached
   review if one already exists, so re-running on already-reviewed drafts is safe. On *new*
   drafts with prior failures it silently re-triggers the API. Investigate or add a
   `force=False` guard before next batch use.
-- **Home page widget for unreviewed drafts:** `count_unreviewed_drafts(product_id)` now
-  exists in `agents/editor.py` but is not yet consumed by the Home page. Small UX
-  improvement, low priority.
-- **Editor reviews for old drafts #1–12 are now orphan rows** — the old drafts were deleted
-  by today's regeneration. Reviews still in `editor_reviews` table; harmless but slightly
-  noisy in Pipeline Overview's all-time issue-code histogram. Cleanup can wait for a future
-  schema-cleanup pass.
+- **Editor reviews for old drafts #1–12 are orphan rows** — the old drafts were deleted by
+  regeneration. Reviews still in `editor_reviews` table; harmless but slightly noisy in
+  Pipeline Overview's all-time issue-code histogram. Cleanup can wait.
+- **HINGLISH_UNCALLED monitor:** Draft #19 used "maidan" without the angle's editorial brief
+  explicitly allowing it. Editor caught correctly. Low frequency (1 instance), isolated.
+  Monitor — don't act yet.
 
 ## Next steps (2026-05-22 onwards)
 
-**Priority 1: Fix angle 10's editorial brief to eliminate PROOF_POINT_LINEAGE_DRIFT.**
-
-This is a 15-minute, $0 fix in the Strategy page UI. Open angle 10 in the Story Angles
-Library, edit the `editorial_brief` and/or `proof_points_used` field to remove anything
-that's pulling the model toward personal-lineage framing of the founder. Then regenerate
-angle 10's drafts via Drafts page and re-review with Editor. Success criterion: PROOF_POINT_LINEAGE_DRIFT
-drops to 0 on the new drafts.
-
-**Priority 2: Prompt 7 — Media agent + Media page.**
+**Priority 1: Prompt 7 — Media agent + Media page (~2-3 hour session)**
 
 Build the Media agent that takes draft `image_brief` fields as input and produces structured
-media suggestions for each draft. ~2-3 hour session of plan-and-paste. Follow the same pattern
-established by the Researcher/Strategist/Copywriter/Editor agents:
+media suggestions for each draft. Follow the same pattern as previous agents:
 
   - `agents/media.py` with public API matching the precedent
   - `ui/pages/6_Media.py` with three tabs (Run / Library / Pipeline Overview)
@@ -357,27 +350,21 @@ established by the Researcher/Strategist/Copywriter/Editor agents:
   - Failed-response logging
   - Match Editor's robust JSON parser (4 strategies)
 
-**Secondary backlog (do these between/around Prompts 7-9):**
-- Drafts page timestamp display (see TODO above) — 15 min UX win, user has flagged twice.
-- Document the Copywriter agent's internals in CLAUDE.md (currently thin) — Prompt 5.5
-  added substantial system-prompt content that deserves explicit documentation.
-- Prompt 8 — Scheduler agent + Calendar page.
-- Prompt 9 — Orchestrator page (run full pipeline end-to-end with one click).
-- Home page widget: "Drafts awaiting review" using `count_unreviewed_drafts()`.
-- Drop the redundant `idx_editor_reviews_draft_review` index.
+**Priority 2: Prompt 8 — Scheduler agent + Calendar page (~2-3 hour session)**
+
+Places approved drafts on an internal content calendar. V1 is internal only — no Meta API.
+
+**Priority 3: Prompt 9 — Orchestrator page (~3-5 hour session)**
+
+One-click full pipeline: Research → Strategy → Drafts → Editor → Schedule.
 
 ## Budget
 
-- **2026-05-18:** ~₹10 net (₹16 gross across 7 API calls; ~₹6 recovered by parsing the
-  two failed responses from the log and inserting reviews manually rather than re-running
-  the API).
-- **2026-05-20:** ~$0.03 (one Re-review test of draft #1 during Editor UI smoke-test).
-- **2026-05-21 (Prompt 5.5):** ~$0.35 total across the day:
-  - First failed regeneration of angle 1 (JSON parse failure): ~$0.05
-  - Second successful regeneration of angle 1 (4 drafts): ~$0.10
-  - Regeneration of angle 7 (2 drafts): ~$0.05
-  - Regeneration of angle 10 (2 drafts): ~$0.05
-  - Editor reviews of drafts #13–20: ~$0.21 total ($0.0224 + $0.0273 + $0.0230 + $0.0212
-    + $0.0209 + $0.0208 + $0.0266 + $0.0297)
-- **Editor agent all-time (as of 2026-05-21):** ~$0.52 across ~19 calls. Average cost
-  per call: ~$0.0274. Visible in Editor → Pipeline Overview → Editor spend section.
+- **2026-05-18:** ~₹10 net
+- **2026-05-20:** ~$0.03
+- **2026-05-21 (Prompt 5.5):** ~$0.35
+- **2026-05-22 (Angle 10 fix + UX cleanup):** ~$0.10 (Editor re-reviews during angle 10
+  fix iterations: ~$0.023 × 4 reviews = ~$0.09; no API cost for data edits or UX changes)
+- **Editor agent all-time (as of 2026-05-22):** ~$0.62 across ~23 calls.
+  Average cost per call: ~$0.027.
+- **Total all-time: ~$1.00**
