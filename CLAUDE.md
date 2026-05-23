@@ -21,15 +21,16 @@ A web app that helps a brand plan, draft, and schedule social media content.
 - **AI:** Anthropic Python SDK, wrapped in `services/anthropic_client.py`
 - **Package management:** `uv` if available, otherwise `pip` + `requirements.txt`
 
-## Architecture: one app, five agents
+## Architecture: one app, six agents
 
-One app, one database, one UI. Inside, five specialized AI agents coordinate:
+One app, one database, one UI. Inside, six specialized AI agents coordinate:
 
 1. **Researcher** — gathers signals (news, trends, athlete content, science updates) relevant to the brand.
 2. **Strategist** — turns research into story angles tied to brand positioning.
 3. **Copywriter** — drafts platform-specific posts from story angles.
 4. **Editor** — reviews drafts for voice, accuracy, and brand guardrails.
-5. **Scheduler** — places approved drafts on the calendar.
+5. **Media** — turns each draft's image_brief into a shoot-ready photography creative brief.
+6. **Scheduler** — places approved drafts on the calendar.
 
 Each agent is its own module under `agents/`. They share the database (handoff is via DB rows, not in-memory state) and share the Anthropic client wrapper in `services/`.
 
@@ -37,14 +38,20 @@ Each agent is its own module under `agents/`. They share the database (handoff i
 
 - **One module per prompt.** We add agents and features incrementally. Don't pre-build agents or stub them — wait for the prompt that adds each one.
 - **No hardcoded brand content.** Never put Sportz-Well's voice, USPs, positioning, "do not say" rules, or any brand-specific copy in Python files. Everything brand-specific lives in the `brand_profiles` table, keyed by client. Code reads the brand profile from the database at runtime.
-- **Database is the handoff layer between agents.** Researcher writes to `research_items`, Strategist reads them and writes `story_angles`, Copywriter reads angles and writes `drafts`, etc.
+- **Database is the handoff layer between agents.** Researcher writes to `research_items`, Strategist reads them and writes `story_angles`, Copywriter reads angles and writes `drafts`, Media reads drafts and writes `media_briefs`, etc.
 - **Models:** Default to the latest Sonnet model ID (currently `claude-sonnet-4-6`) via the wrapper in `services/anthropic_client.py`. Don't hardcode model strings throughout the codebase.
 - **Secrets:** API keys live only in `.env` (gitignored). `.env.example` documents what's needed.
+- **`ask_with_usage()` signature:** Takes `system_prompt` and `user_prompt` as keyword args. Returns a dict with keys: `text`, `input_tokens`, `output_tokens`, `web_searches`, `error`. Never unpack as a tuple.
 
 ## Repository layout
 
 ```
 agents/      # one file per agent, added incrementally
+  researcher.py
+  strategist.py
+  copywriter.py
+  editor.py
+  media.py         # Prompt 7 — photography creative brief generator
 db/
   schema.sql       # canonical schema — single source of truth
   init_db.py       # creates data/app.db; auto-migrates old Prompt-1 schema
@@ -56,7 +63,7 @@ ui/
     3_Strategy.py        # Strategy module (Prompt 4)
     4_Drafts.py          # Drafts module (Prompt 5)
     5_Editor.py          # Editor module (Prompt 6)
-    6_Media.py           # placeholder — Prompt 7
+    6_Media.py           # Media Studio module (Prompt 7)
     7_Calendar.py        # placeholder — Prompt 8
     8_Orchestrator.py    # placeholder — Prompt 9
 services/
@@ -80,7 +87,7 @@ Two-tier hierarchy — organisation owns products, products have phases:
 - `partner_brands` — affiliated brands to mention. Empty in Phase 1 but schema is ready.
 - `content_rules` — configurable rules keyed by `rule_key`. Vision-hint quota lives here.
 
-Pipeline tables (`research_items`, `story_angles`, `drafts`, `schedule`) use `product_id`
+Pipeline tables (`research_items`, `story_angles`, `drafts`, `media_briefs`, `schedule`) use `product_id`
 (renamed from Prompt-1's `client_id`) and are wired up in later prompts.
 
 ## Brand context API
@@ -98,9 +105,12 @@ Pipeline tables (`research_items`, `story_angles`, `drafts`, `schedule`) use `pr
 **Every future agent MUST call `build_brand_context_prompt()` and inject it into its
 Claude system prompt. Never hardcode brand content in agent code.**
 
+**Key from `get_active_product()`:** The dict uses `product_id` (not `id`) and `product_name`
+(not `name`). All pages and agents must use these keys — do not assume `id` or `name`.
+
 ## Current status
 
-**Last updated:** 2026-05-22 (Angle 10 fix + UX cleanup session)
+**Last updated:** 2026-05-23 (Prompt 7 — Media agent session)
 
 - ✅ Project scaffold (Prompt 1): folders, `.gitignore`, `.env.example`, `requirements.txt`, `README.md`.
 - ✅ `services/anthropic_client.py` — thin wrapper exposing `ask()`, `ask_with_usage()`, and `ask_with_web_search()`.
@@ -180,6 +190,15 @@ Claude system prompt. Never hardcode brand content in agent code.**
     `count_unreviewed_drafts()` from `agents/editor.py`.
 - ✅ DB cleanup (2026-05-22): dropped redundant index `idx_editor_reviews_draft_review`
   (redundant with `sqlite_autoindex` created by the `UNIQUE(draft_id, review_number)` constraint).
+- ✅ Prompt 7 — Media agent + Media Studio page (2026-05-23):
+  - `agents/media.py` — fifth agent in the pipeline (see dedicated section below).
+  - `media_briefs` table added to schema and migrated by `db/init_db.py`.
+  - Media Studio page (`ui/pages/6_Media.py`) — three tabs:
+    - Tab 1 (Generate): cost warning, draft counters, Generate All + single-draft picker, force-regenerate option.
+    - Tab 2 (Library): brief cards with all fields, approve/reject/regenerate buttons, filter by status/platform.
+    - Tab 3 (Pipeline Overview): coverage progress bar, status breakdown, per-draft table, spend summary.
+  - Home page updated: two new widgets — "drafts without media brief" warning + "pending briefs" info.
+  - Empirical cost: ~$0.018 per brief. 8 briefs generated for ~$0.14 total.
 
 ---
 
@@ -320,12 +339,81 @@ Every call logged to both `data/api_log.csv` and `api_log` DB table with
 
 ---
 
+## Media agent internals (`agents/media.py`)
+
+**Added:** Prompt 7 (2026-05-23).
+
+### What it does
+
+Takes each draft's `image_brief` (a 1–2 sentence description written by the Copywriter)
+and expands it into a detailed, shoot-ready photography creative brief for the content team.
+Output is structured JSON saved to the `media_briefs` table. One brief per draft.
+
+### Public API
+
+| Function | Does |
+|---|---|
+| `generate_media_brief(draft_id, force=False)` | Generate 1 brief; returns cached if exists and force=False |
+| `generate_all_pending(product_id, force=False)` | Run on all drafts without a brief |
+| `get_media_library(product_id, status_filter, platform_filter)` | Returns briefs joined with draft + angle info |
+| `get_brief_for_draft(draft_id)` | Returns the brief dict for a draft, or None |
+| `update_brief_status(brief_id, status)` | Set pending / approved / rejected |
+| `count_media_stats(product_id)` | Coverage and status counts for pipeline overview |
+| `get_last_run_info()` | Metadata from last generate call in this process |
+
+### JSON output schema (one brief per draft)
+
+```json
+{
+  "shot_type":         "overhead",
+  "subject":           "...",
+  "setting":           "...",
+  "time_of_day":       "indoor studio",
+  "lighting_mood":     "soft natural",
+  "props":             ["aged logbook", "cricket ball"],
+  "composition_notes": "...",
+  "color_palette":     ["aged ivory", "deep amber"],
+  "wardrobe_notes":    "...",
+  "do_not":            ["no Apple/Samsung logos", "no stock flatlay styling"],
+  "caption_sync_note": "..."
+}
+```
+
+`wardrobe_notes` may be null. `props`, `color_palette`, `do_not` are JSON arrays stored as TEXT.
+
+### DB table: `media_briefs`
+
+One row per draft (UNIQUE on `draft_id`). Regeneration uses INSERT OR REPLACE — resets status
+to 'pending'. Status values: `pending` | `approved` | `rejected`.
+
+### Robust JSON parser (4 strategies — same as Editor/Copywriter)
+
+  1. Direct `json.loads()`
+  2. Strip markdown fences then `json.loads()`
+  3. Remove trailing commas then `json.loads()`
+  4. `re.finditer(r'\{')` + `JSONDecoder.raw_decode()` — handles prose before JSON block
+
+### Spend tracking
+
+Every call logged to `api_log` table and `data/api_log.csv` with `agent = 'media'`.
+Empirical cost: ~$0.018 per brief (~₹1.50). Visible in Media Studio → Pipeline Overview tab.
+
+### Brand photography guidelines (injected into system prompt)
+
+- Authentic Indian sports environments preferred: maidans, nets, academies, school grounds.
+- Real athletes and coaches over models — raw, disciplined energy over glamour.
+- No stock-photo poses. Every shot should look documentary or editorial.
+- `do_not` array MUST include brand/logo avoidance rules relevant to the brief.
+
+---
+
 ## TODOs and known minor issues
 
 - **Drafts agent documentation** — now documented above. ✅
 - **Drafts page timestamps** — now showing on draft cards. ✅
 - **Home page unreviewed drafts widget** — now live. ✅
 - **Drop redundant index** — done. ✅
+- **Media agent documentation** — now documented above. ✅
 - **`batch_review_remaining.py` implicit retry behaviour:** `review_draft()` returns a cached
   review if one already exists, so re-running on already-reviewed drafts is safe. On *new*
   drafts with prior failures it silently re-triggers the API. Investigate or add a
@@ -337,26 +425,16 @@ Every call logged to both `data/api_log.csv` and `api_log` DB table with
   explicitly allowing it. Editor caught correctly. Low frequency (1 instance), isolated.
   Monitor — don't act yet.
 
-## Next steps (2026-05-22 onwards)
+## Next steps (2026-05-23 onwards)
 
-**Priority 1: Prompt 7 — Media agent + Media page (~2-3 hour session)**
-
-Build the Media agent that takes draft `image_brief` fields as input and produces structured
-media suggestions for each draft. Follow the same pattern as previous agents:
-
-  - `agents/media.py` with public API matching the precedent
-  - `ui/pages/6_Media.py` with three tabs (Run / Library / Pipeline Overview)
-  - api_log integration for spend tracking
-  - Failed-response logging
-  - Match Editor's robust JSON parser (4 strategies)
-
-**Priority 2: Prompt 8 — Scheduler agent + Calendar page (~2-3 hour session)**
+**Priority 1: Prompt 8 — Scheduler agent + Calendar page (~2-3 hour session)**
 
 Places approved drafts on an internal content calendar. V1 is internal only — no Meta API.
+User selects date/time, draft is saved to `schedule` table, displayed on a calendar view.
 
-**Priority 3: Prompt 9 — Orchestrator page (~3-5 hour session)**
+**Priority 2: Prompt 9 — Orchestrator page (~3-5 hour session)**
 
-One-click full pipeline: Research → Strategy → Drafts → Editor → Schedule.
+One-click full pipeline: Research → Strategy → Drafts → Editor → Media → Schedule.
 
 ## Budget
 
@@ -367,4 +445,7 @@ One-click full pipeline: Research → Strategy → Drafts → Editor → Schedul
   fix iterations: ~$0.023 × 4 reviews = ~$0.09; no API cost for data edits or UX changes)
 - **Editor agent all-time (as of 2026-05-22):** ~$0.62 across ~23 calls.
   Average cost per call: ~$0.027.
-- **Total all-time: ~$1.00**
+- **2026-05-23 (Prompt 7 — Media agent):** ~$0.14 (8 briefs × ~$0.018 each) + ~$0.02 debug iterations.
+- **Media agent all-time (as of 2026-05-23):** ~$0.16 across ~10 calls.
+  Average cost per call: ~$0.018.
+- **Total all-time: ~$1.16**
