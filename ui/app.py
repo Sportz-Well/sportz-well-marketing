@@ -20,6 +20,7 @@ from services.brand_context import get_active_product, get_brand_profile
 from services.database import get_connection
 from agents.strategist import count_approved_angles
 from agents.editor import count_unreviewed_drafts
+from agents.media import count_media_stats
 
 # Ensure the DB exists (idempotent — safe on every page load).
 init_db()
@@ -80,7 +81,7 @@ modules = [
     ("Strategy",     "pages/3_Strategy",     "✅ Ready",       "Turn research into story angles tied to brand positioning."),
     ("Drafts",       "pages/4_Drafts",       "✅ Ready",       "Draft platform-specific posts from story angles."),
     ("Editor",       "pages/5_Editor",       "✅ Ready",       "Review drafts for voice, accuracy, and brand guardrails."),
-    ("Media",        None,                   "⏭ Prompt 7",    "Suggest and organise media assets for each post."),
+    ("Media",        "pages/6_Media",        "✅ Ready",       "Generate shoot-ready photography briefs for each draft."),
     ("Calendar",     None,                   "⏭ Prompt 8",    "Schedule approved drafts on the content calendar."),
     ("Orchestrator", None,                   "⏭ Prompt 9",    "Run the full pipeline end-to-end with one click."),
 ]
@@ -98,8 +99,17 @@ st.divider()
 if product is not None:
     product_id = product["product_id"]
 
-    approved_n    = count_approved_angles(product_id)
-    unreviewed_n  = count_unreviewed_drafts(product_id)
+    approved_n   = count_approved_angles(product_id)
+    unreviewed_n = count_unreviewed_drafts(product_id)
+
+    # Media stats
+    try:
+        media_stats    = count_media_stats(product_id)
+        pending_briefs = media_stats["briefs_pending"]
+        without_brief  = media_stats["drafts_without_brief"]
+    except Exception:
+        pending_briefs = 0
+        without_brief  = 0
 
     if approved_n > 0:
         st.success(
@@ -115,8 +125,21 @@ if product is not None:
             icon="📋",
         )
     elif approved_n > 0:
-        # Only show "all clear" if there's something in the pipeline
         st.info("All drafts have been reviewed.", icon="✅")
+
+    if without_brief > 0:
+        st.warning(
+            f"**{without_brief} draft{'s' if without_brief != 1 else ''} without a media brief.** "
+            "Go to [Media Studio](/Media) to generate photography briefs.",
+            icon="📸",
+        )
+
+    if pending_briefs > 0:
+        st.info(
+            f"**{pending_briefs} media brief{'s' if pending_briefs != 1 else ''} pending approval.** "
+            "Go to [Media Studio → Library](/Media) to approve or reject.",
+            icon="🟡",
+        )
 
 st.divider()
 
