@@ -84,7 +84,7 @@ modules = [
     ("Editor",       "pages/5_Editor",       "✅ Ready",    "Review drafts for voice, accuracy, and brand guardrails."),
     ("Media",        "pages/6_Media",        "✅ Ready",    "Generate shoot-ready photography briefs for each draft."),
     ("Calendar",     "pages/7_Calendar",     "✅ Ready",    "Schedule approved drafts on the content calendar."),
-    ("Orchestrator", None,                   "⏭ Prompt 9", "Run the full pipeline end-to-end with one click."),
+    ("Orchestrator", "pages/8_Orchestrator",  "✅ Ready",    "Run the full pipeline end-to-end with one click."),
 ]
 
 for name, _page, status, description in modules:
