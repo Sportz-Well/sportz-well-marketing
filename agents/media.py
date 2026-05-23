@@ -257,7 +257,7 @@ def _save_brief(conn: sqlite3.Connection, draft_id: int, product_id: int,
     Upsert a media brief (INSERT OR REPLACE).
     Returns the brief id.
     """
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %Human:%M:%S")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
         """
         INSERT INTO media_briefs (
@@ -395,13 +395,23 @@ def generate_media_brief(draft_id: int, force: bool = False) -> dict:
         user_prompt   = _build_user_prompt(draft)
 
         # Call the API
-        response_text, usage = ask_with_usage(
-            system=system_prompt,
-            user=user_prompt,
+        result = ask_with_usage(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=1024,
         )
 
-        input_tokens  = usage.get("input_tokens", 0)
-        output_tokens = usage.get("output_tokens", 0)
+        if result.get("error"):
+            return {
+                "ok": False,
+                "draft_id": draft_id,
+                "error": f"API error: {result['error']}",
+                "cost_usd": 0.0,
+            }
+
+        response_text = result["text"]
+        input_tokens  = result.get("input_tokens", 0)
+        output_tokens = result.get("output_tokens", 0)
         cost          = (input_tokens * COST_PER_INPUT_TOKEN +
                          output_tokens * COST_PER_OUTPUT_TOKEN)
 
