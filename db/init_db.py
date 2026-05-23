@@ -143,6 +143,57 @@ def _migrate_existing_db(conn: sqlite3.Connection) -> None:
             "ON editor_reviews(draft_id, review_number)"
         )
 
+    # media_briefs table (Prompt 7) — created by schema.sql IF NOT EXISTS.
+    # This block adds any columns that might be missing on a DB that was created
+    # before Prompt 7 landed (safe to run on a fresh DB — _get_table_columns
+    # returns an empty set only if the table somehow didn't get created above,
+    # which schema.sql's CREATE TABLE IF NOT EXISTS prevents).
+    if _table_exists(conn, "media_briefs"):
+        existing = _get_table_columns(conn, "media_briefs")
+        mb_additions = [
+            ("shot_type",           "TEXT NOT NULL DEFAULT ''"),
+            ("subject",             "TEXT NOT NULL DEFAULT ''"),
+            ("setting",             "TEXT NOT NULL DEFAULT ''"),
+            ("time_of_day",         "TEXT NOT NULL DEFAULT ''"),
+            ("lighting_mood",       "TEXT NOT NULL DEFAULT ''"),
+            ("props",               "TEXT NOT NULL DEFAULT '[]'"),
+            ("composition_notes",   "TEXT NOT NULL DEFAULT ''"),
+            ("color_palette",       "TEXT NOT NULL DEFAULT '[]'"),
+            ("wardrobe_notes",      "TEXT"),
+            ("do_not",              "TEXT NOT NULL DEFAULT '[]'"),
+            ("caption_sync_note",   "TEXT NOT NULL DEFAULT ''"),
+            ("raw_model_response",  "TEXT"),
+            ("model_input_tokens",  "INTEGER NOT NULL DEFAULT 0"),
+            ("model_output_tokens", "INTEGER NOT NULL DEFAULT 0"),
+            ("cost_usd",            "REAL NOT NULL DEFAULT 0.0"),
+            ("status",              "TEXT NOT NULL DEFAULT 'pending'"),
+            ("created_at",          "TEXT NOT NULL DEFAULT (datetime('now'))"),
+            ("updated_at",          "TEXT NOT NULL DEFAULT (datetime('now'))"),
+        ]
+        for col_name, col_type in mb_additions:
+            if col_name not in existing:
+                conn.execute(
+                    f"ALTER TABLE media_briefs ADD COLUMN {col_name} {col_type}"
+                )
+                print(f"  Migrated: added media_briefs.{col_name}")
+
+        # Ensure indexes exist
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_media_briefs_product "
+            "ON media_briefs(product_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_media_briefs_draft "
+            "ON media_briefs(draft_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_media_briefs_status "
+            "ON media_briefs(status)"
+        )
+        print("  media_briefs: schema confirmed / indexes ensured.")
+    else:
+        print("  Note: media_briefs table not found after executescript; check schema.sql.")
+
     # Indexes (idempotent — schema.sql uses CREATE INDEX IF NOT EXISTS)
 
 
