@@ -197,6 +197,42 @@ CREATE TABLE IF NOT EXISTS editor_reviews (
 CREATE INDEX IF NOT EXISTS idx_editor_reviews_draft_id     ON editor_reviews(draft_id);
 CREATE INDEX IF NOT EXISTS idx_editor_reviews_draft_review ON editor_reviews(draft_id, review_number);
 
+-- ─── MEDIA BRIEFS ────────────────────────────────────────────────────────────
+
+-- Creative photography briefs produced by the Media agent from a draft's image_brief.
+-- One brief per draft (UNIQUE on draft_id). Regeneration replaces the existing row.
+-- props, color_palette, do_not are JSON arrays stored as TEXT.
+-- status: 'pending' | 'approved' | 'rejected'
+CREATE TABLE IF NOT EXISTS media_briefs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    draft_id            INTEGER NOT NULL UNIQUE REFERENCES drafts(id) ON DELETE CASCADE,
+    product_id          INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    shot_type           TEXT    NOT NULL,   -- close-up | mid-shot | wide | overhead | action
+    subject             TEXT    NOT NULL,   -- who/what is the primary subject
+    setting             TEXT    NOT NULL,   -- location description
+    time_of_day         TEXT    NOT NULL,   -- golden hour | indoor studio | midday outdoor | etc.
+    lighting_mood       TEXT    NOT NULL,   -- soft natural | high contrast | dramatic | flat bright | etc.
+    props               TEXT    NOT NULL DEFAULT '[]',   -- JSON array of prop strings
+    composition_notes   TEXT    NOT NULL,   -- framing, rule-of-thirds, depth notes
+    color_palette       TEXT    NOT NULL DEFAULT '[]',   -- JSON array of colour descriptors
+    wardrobe_notes      TEXT,               -- clothing / kit guidance; null if not applicable
+    do_not              TEXT    NOT NULL DEFAULT '[]',   -- JSON array of hard avoidance rules
+    caption_sync_note   TEXT    NOT NULL,   -- how visual should reinforce the caption hook
+    raw_model_response  TEXT,               -- full model output for debugging
+    model_input_tokens  INTEGER NOT NULL DEFAULT 0,
+    model_output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd            REAL    NOT NULL DEFAULT 0.0,
+    status              TEXT    NOT NULL DEFAULT 'pending'
+                                CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_media_briefs_product    ON media_briefs(product_id);
+CREATE INDEX IF NOT EXISTS idx_media_briefs_draft      ON media_briefs(draft_id);
+CREATE INDEX IF NOT EXISTS idx_media_briefs_status     ON media_briefs(status);
+
+-- ─── CALENDAR ───────────────────────────────────────────────────────────────
+
 -- Calendar entries owned by the Scheduler.
 -- posted_manually = 1 in V1 (user copy-pastes into Meta Business Suite).
 CREATE TABLE IF NOT EXISTS schedule (
