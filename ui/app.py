@@ -21,6 +21,7 @@ from services.database import get_connection
 from agents.strategist import count_approved_angles
 from agents.editor import count_unreviewed_drafts
 from agents.media import count_media_stats
+from agents.scheduler import get_pipeline_summary
 
 # Ensure the DB exists (idempotent — safe on every page load).
 init_db()
@@ -76,14 +77,14 @@ st.divider()
 st.subheader("Modules")
 
 modules = [
-    ("Brand Brain",  "pages/1_Brand_Brain",  "✅ Ready",       "Define the brand, phases, voice, and content rules."),
-    ("Research",     "pages/2_Research",     "✅ Ready",       "Gather news, trends, and athlete signals."),
-    ("Strategy",     "pages/3_Strategy",     "✅ Ready",       "Turn research into story angles tied to brand positioning."),
-    ("Drafts",       "pages/4_Drafts",       "✅ Ready",       "Draft platform-specific posts from story angles."),
-    ("Editor",       "pages/5_Editor",       "✅ Ready",       "Review drafts for voice, accuracy, and brand guardrails."),
-    ("Media",        "pages/6_Media",        "✅ Ready",       "Generate shoot-ready photography briefs for each draft."),
-    ("Calendar",     None,                   "⏭ Prompt 8",    "Schedule approved drafts on the content calendar."),
-    ("Orchestrator", None,                   "⏭ Prompt 9",    "Run the full pipeline end-to-end with one click."),
+    ("Brand Brain",  "pages/1_Brand_Brain",  "✅ Ready",    "Define the brand, phases, voice, and content rules."),
+    ("Research",     "pages/2_Research",     "✅ Ready",    "Gather news, trends, and athlete signals."),
+    ("Strategy",     "pages/3_Strategy",     "✅ Ready",    "Turn research into story angles tied to brand positioning."),
+    ("Drafts",       "pages/4_Drafts",       "✅ Ready",    "Draft platform-specific posts from story angles."),
+    ("Editor",       "pages/5_Editor",       "✅ Ready",    "Review drafts for voice, accuracy, and brand guardrails."),
+    ("Media",        "pages/6_Media",        "✅ Ready",    "Generate shoot-ready photography briefs for each draft."),
+    ("Calendar",     "pages/7_Calendar",     "✅ Ready",    "Schedule approved drafts on the content calendar."),
+    ("Orchestrator", None,                   "⏭ Prompt 9", "Run the full pipeline end-to-end with one click."),
 ]
 
 for name, _page, status, description in modules:
@@ -110,6 +111,15 @@ if product is not None:
     except Exception:
         pending_briefs = 0
         without_brief  = 0
+
+    # Scheduler stats
+    try:
+        sched_summary  = get_pipeline_summary(product_id)
+        unscheduled_n  = sched_summary["unscheduled"]
+        scheduled_n    = sched_summary["scheduled_pending"]
+    except Exception:
+        unscheduled_n  = 0
+        scheduled_n    = 0
 
     if approved_n > 0:
         st.success(
@@ -139,6 +149,20 @@ if product is not None:
             f"**{pending_briefs} media brief{'s' if pending_briefs != 1 else ''} pending approval.** "
             "Go to [Media Studio → Library](/Media) to approve or reject.",
             icon="🟡",
+        )
+
+    # ── Scheduler widget ──────────────────────────────────────────────────────
+    if unscheduled_n > 0:
+        st.warning(
+            f"**{unscheduled_n} approved draft{'s' if unscheduled_n != 1 else ''} not yet scheduled.** "
+            "Go to [Calendar → Schedule a Draft](/7_Calendar) to add them to the calendar.",
+            icon="🗓",
+        )
+    elif scheduled_n > 0:
+        st.success(
+            f"**{scheduled_n} post{'s' if scheduled_n != 1 else ''} scheduled and ready to go.** "
+            "View them in [Calendar](/7_Calendar).",
+            icon="🗓",
         )
 
 st.divider()
