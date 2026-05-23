@@ -30,8 +30,8 @@ if not product:
     st.error("No active product found. Go to Brand Brain → Seed Data first.")
     st.stop()
 
-product_id   = product["id"]
-product_name = product["name"]
+product_id   = product["product_id"]
+product_name = product["product_name"]
 
 # ── Tabs ───────────────────────────────────────────────────────────────────
 tab_gen, tab_lib, tab_pipe = st.tabs(
