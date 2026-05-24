@@ -23,7 +23,6 @@ from agents.editor import count_unreviewed_drafts
 from agents.media import count_media_stats
 from agents.scheduler import get_pipeline_summary
 
-# Ensure the DB exists (idempotent — safe on every page load).
 init_db()
 
 st.set_page_config(
@@ -32,177 +31,426 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("Sportz-Well Marketing Studio")
-st.caption("Plan, draft, and schedule social media content for SWPI.")
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@300;400;500&display=swap');
 
-st.divider()
+.stApp { background-color: #080810; color: #e8e8f0; }
 
-# ─── Active client summary card ──────────────────────────────────────────────
+[data-testid="stSidebar"] {
+    background-color: #0d0d1a !important;
+    border-right: 1px solid #1e1e35;
+}
+[data-testid="stSidebar"] * { color: #c8c8e0 !important; }
+[data-testid="stSidebar"] a:hover { color: #f5a623 !important; }
+
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+    max-width: 1200px;
+}
+
+.sw-hero {
+    background: linear-gradient(135deg, #0d0d1a 0%, #12122a 50%, #0d0d1a 100%);
+    border: 1px solid #2a2a4a;
+    border-top: 3px solid #f5a623;
+    border-radius: 4px;
+    padding: 2rem 2.5rem;
+    margin-bottom: 1.5rem;
+    position: relative;
+    overflow: hidden;
+}
+.sw-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; right: 0;
+    width: 300px; height: 100%;
+    background: radial-gradient(ellipse at right, rgba(245,166,35,0.06) 0%, transparent 70%);
+    pointer-events: none;
+}
+.sw-hero-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 2.4rem;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin: 0;
+    line-height: 1.1;
+}
+.sw-hero-title span { color: #f5a623; }
+.sw-hero-sub {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.85rem;
+    color: #6868a0;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-top: 0.4rem;
+}
+
+.sw-section-label {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #f5a623;
+    margin-bottom: 0.8rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid #1e1e35;
+}
+
+.sw-client-card {
+    background: #0d0d1a;
+    border: 1px solid #1e1e35;
+    border-left: 3px solid #f5a623;
+    border-radius: 4px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 1.5rem;
+}
+.sw-client-name {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.sw-client-oneliner {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.88rem;
+    color: #8888b8;
+    margin-top: 0.2rem;
+    font-style: italic;
+}
+.sw-badge-active {
+    display: inline-block;
+    background: rgba(0,200,100,0.12);
+    color: #00c864;
+    border: 1px solid rgba(0,200,100,0.3);
+    border-radius: 2px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+}
+.sw-badge-inactive {
+    display: inline-block;
+    background: rgba(100,100,140,0.12);
+    color: #6868a0;
+    border: 1px solid rgba(100,100,140,0.3);
+    border-radius: 2px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+}
+.sw-meta {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.82rem;
+    color: #6868a0;
+    margin-top: 0.3rem;
+}
+.sw-meta strong { color: #a0a0c8; }
+
+.sw-module-row {
+    display: flex;
+    align-items: center;
+    padding: 0.7rem 1.2rem;
+    border-bottom: 1px solid #0f0f1e;
+    transition: background 0.15s;
+}
+.sw-module-row:hover { background: rgba(245,166,35,0.04); }
+.sw-module-row:last-child { border-bottom: none; }
+.sw-module-name {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #d0d0f0;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    width: 160px;
+    flex-shrink: 0;
+}
+.sw-module-status {
+    width: 90px;
+    flex-shrink: 0;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #00c864;
+}
+.sw-module-desc {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.82rem;
+    color: #585890;
+}
+.sw-module-table {
+    background: #0d0d1a;
+    border: 1px solid #1e1e35;
+    border-radius: 4px;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+}
+
+.sw-alert {
+    border-radius: 3px;
+    padding: 0.75rem 1.2rem;
+    margin-bottom: 0.5rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.84rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
+.sw-alert-warn {
+    background: rgba(245,166,35,0.08);
+    border: 1px solid rgba(245,166,35,0.22);
+    color: #e8c87a;
+}
+.sw-alert-success {
+    background: rgba(0,200,100,0.07);
+    border: 1px solid rgba(0,200,100,0.18);
+    color: #70e8a8;
+}
+.sw-alert-info {
+    background: rgba(80,120,255,0.07);
+    border: 1px solid rgba(80,120,255,0.18);
+    color: #90a8f8;
+}
+
+.sw-research-item {
+    background: #0d0d1a;
+    border: 1px solid #1a1a30;
+    border-radius: 3px;
+    padding: 0.65rem 1rem;
+    margin-bottom: 0.35rem;
+    font-family: 'Inter', sans-serif;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    transition: border-color 0.15s;
+}
+.sw-research-item:hover { border-color: #2a2a50; }
+.sw-research-score {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    width: 38px;
+}
+.sw-research-title { font-size: 0.83rem; color: #c0c0e0; flex: 1; }
+.sw-research-meta { font-size: 0.74rem; color: #484870; white-space: nowrap; }
+
+h1, h2, h3 {
+    font-family: 'Rajdhani', sans-serif !important;
+    color: #ffffff !important;
+    letter-spacing: 0.04em !important;
+}
+.stMetric {
+    background: #0d0d1a !important;
+    border: 1px solid #1e1e35 !important;
+    border-radius: 4px !important;
+    padding: 1rem !important;
+}
+.stButton > button {
+    background: transparent !important;
+    border: 1px solid #f5a623 !important;
+    color: #f5a623 !important;
+    font-family: 'Rajdhani', sans-serif !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.1em !important;
+    text-transform: uppercase !important;
+    border-radius: 2px !important;
+}
+.stButton > button:hover {
+    background: #f5a623 !important;
+    color: #080810 !important;
+}
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent !important;
+    border-bottom: 1px solid #1e1e35 !important;
+}
+.stTabs [data-baseweb="tab"] {
+    font-family: 'Rajdhani', sans-serif !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+    color: #6868a0 !important;
+}
+.stTabs [aria-selected="true"] {
+    color: #f5a623 !important;
+    border-bottom: 2px solid #f5a623 !important;
+}
+[data-testid="stDivider"] { border-color: #1a1a2e !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Hero ──────────────────────────────────────────────────────────────────────
+
+st.markdown("""
+<div class="sw-hero">
+    <div class="sw-hero-title">SPORTZ-WELL <span>MARKETING STUDIO</span></div>
+    <div class="sw-hero-sub">AI-Powered Content Pipeline &nbsp;·&nbsp; SWPI Phase 1</div>
+</div>
+""", unsafe_allow_html=True)
+
+# ── Active client ─────────────────────────────────────────────────────────────
 
 product = get_active_product()
 
 if product is None:
-    st.info(
-        "No client set up yet — go to **Brand Brain → Tab D** to seed Sportz-Well / SWPI.",
-        icon="ℹ️",
-    )
+    st.markdown("""
+    <div class="sw-alert sw-alert-info">
+        <span>ℹ️</span>
+        <span>No client set up yet — go to <strong>Brand Brain → Tab D</strong> to seed Sportz-Well / SWPI.</span>
+    </div>
+    """, unsafe_allow_html=True)
 else:
-    profile  = get_brand_profile(product["product_id"])
-    phase    = product.get("active_phase")
+    profile = get_brand_profile(product["product_id"])
+    phase   = product.get("active_phase")
 
-    col_left, col_right = st.columns([2, 1])
+    badge = (
+        '<span class="sw-badge-active">● Social Active</span>'
+        if product["product_social_active"]
+        else '<span class="sw-badge-inactive">● Social Inactive</span>'
+    )
+    phase_html = ""
+    if phase:
+        phase_html = f'<div class="sw-meta" style="margin-top:0.5rem;"><strong>Active Phase:</strong> Phase {phase["phase_number"]} — {phase["name"]}</div>'
+        if phase.get("focus"):
+            phase_html += f'<div class="sw-meta">{phase["focus"]}</div>'
 
-    with col_left:
-        st.subheader(f"{product['product_name']} — {product.get('full_name') or ''}")
-        if product.get("one_liner"):
-            st.markdown(f"*{product['one_liner']}*")
-        st.markdown(f"**Parent organisation:** {product['org_name']}")
-        if product.get("product_website"):
-            st.markdown(f"**Website:** {product['product_website']}")
+    website_html = ""
+    if product.get("product_website"):
+        website_html = f'<div class="sw-meta"><strong>Website:</strong> <a href="{product["product_website"]}" style="color:#f5a623;text-decoration:none;">{product["product_website"]}</a></div>'
 
-    with col_right:
-        social_badge = "🟢 Social active" if product["product_social_active"] else "⚫ Social inactive"
-        st.markdown(f"**Status:** {social_badge}")
-        if phase:
-            st.markdown(f"**Active phase:** Phase {phase['phase_number']} — {phase['name']}")
-            if phase.get("focus"):
-                st.caption(phase["focus"])
-        if profile.get("sales_cycle_type"):
-            st.markdown(f"**Sales cycle:** {profile['sales_cycle_type']}")
+    sales_html = ""
+    if profile.get("sales_cycle_type"):
+        sales_html = f'<div class="sw-meta"><strong>Sales Cycle:</strong> {profile["sales_cycle_type"]}</div>'
 
-st.divider()
+    st.markdown(f"""
+<div class="sw-section-label">Active Client</div>
+<div class="sw-client-card">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem;">
+        <div>
+            <div class="sw-client-name">{product['product_name']} — {product.get('full_name') or ''}</div>
+            <div class="sw-client-oneliner">{product.get('one_liner') or ''}</div>
+            <div class="sw-meta"><strong>Organisation:</strong> {product['org_name']}</div>
+            {website_html}
+        </div>
+        <div style="text-align:right;">
+            {badge}
+            {phase_html}
+            {sales_html}
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-# ─── Module overview ─────────────────────────────────────────────────────────
-
-st.subheader("Modules")
+# ── Modules ───────────────────────────────────────────────────────────────────
 
 modules = [
-    ("Brand Brain",  "pages/1_Brand_Brain",  "✅ Ready",    "Define the brand, phases, voice, and content rules."),
-    ("Research",     "pages/2_Research",     "✅ Ready",    "Gather news, trends, and athlete signals."),
-    ("Strategy",     "pages/3_Strategy",     "✅ Ready",    "Turn research into story angles tied to brand positioning."),
-    ("Drafts",       "pages/4_Drafts",       "✅ Ready",    "Draft platform-specific posts from story angles."),
-    ("Editor",       "pages/5_Editor",       "✅ Ready",    "Review drafts for voice, accuracy, and brand guardrails."),
-    ("Media",        "pages/6_Media",        "✅ Ready",    "Generate shoot-ready photography briefs for each draft."),
-    ("Calendar",     "pages/7_Calendar",     "✅ Ready",    "Schedule approved drafts on the content calendar."),
-    ("Orchestrator", "pages/8_Orchestrator",  "✅ Ready",    "Run the full pipeline end-to-end with one click."),
+    ("Brand Brain",  "Define the brand, phases, voice, and content rules."),
+    ("Research",     "Gather news, trends, and athlete signals."),
+    ("Strategy",     "Turn research into story angles tied to brand positioning."),
+    ("Drafts",       "Draft platform-specific posts from story angles."),
+    ("Editor",       "Review drafts for voice, accuracy, and brand guardrails."),
+    ("Media",        "Generate shoot-ready photography briefs for each draft."),
+    ("Calendar",     "Schedule approved drafts on the content calendar."),
+    ("Orchestrator", "Run the full pipeline end-to-end with one click."),
 ]
 
-for name, _page, status, description in modules:
-    col_name, col_status, col_desc = st.columns([2, 1, 4])
-    col_name.markdown(f"**{name}**")
-    col_status.markdown(status)
-    col_desc.caption(description)
+rows = "".join(f"""
+<div class="sw-module-row">
+    <div class="sw-module-name">{name}</div>
+    <div class="sw-module-status">✓ Ready</div>
+    <div class="sw-module-desc">{desc}</div>
+</div>""" for name, desc in modules)
 
-st.divider()
+st.markdown(f"""
+<div class="sw-section-label">Pipeline Modules</div>
+<div class="sw-module-table">{rows}</div>
+""", unsafe_allow_html=True)
 
-# ─── Pipeline status widgets ──────────────────────────────────────────────────
+# ── Pipeline alerts ───────────────────────────────────────────────────────────
 
 if product is not None:
     product_id = product["product_id"]
-
     approved_n   = count_approved_angles(product_id)
     unreviewed_n = count_unreviewed_drafts(product_id)
 
-    # Media stats
     try:
-        media_stats    = count_media_stats(product_id)
-        pending_briefs = media_stats["briefs_pending"]
-        without_brief  = media_stats["drafts_without_brief"]
+        ms = count_media_stats(product_id)
+        pending_briefs = ms["briefs_pending"]
+        without_brief  = ms["drafts_without_brief"]
     except Exception:
-        pending_briefs = 0
-        without_brief  = 0
+        pending_briefs = without_brief = 0
 
-    # Scheduler stats
     try:
-        sched_summary  = get_pipeline_summary(product_id)
-        unscheduled_n  = sched_summary["unscheduled"]
-        scheduled_n    = sched_summary["scheduled_pending"]
+        ss = get_pipeline_summary(product_id)
+        unscheduled_n = ss["unscheduled"]
+        scheduled_n   = ss["scheduled_pending"]
     except Exception:
-        unscheduled_n  = 0
-        scheduled_n    = 0
+        unscheduled_n = scheduled_n = 0
 
+    alerts = ""
     if approved_n > 0:
-        st.success(
-            f"**{approved_n} approved angle{'s' if approved_n != 1 else ''} ready for drafting.** "
-            "Go to [Strategy → Story Angles Library](/Strategy) to review them.",
-            icon="✅",
-        )
-
+        alerts += f'<div class="sw-alert sw-alert-success"><span>✅</span><span><strong>{approved_n} approved angle{"s" if approved_n != 1 else ""}</strong> ready for drafting — go to Strategy.</span></div>'
     if unreviewed_n > 0:
-        st.warning(
-            f"**{unreviewed_n} draft{'s' if unreviewed_n != 1 else ''} awaiting Editor review.** "
-            "Go to [Editor](/Editor) to review them.",
-            icon="📋",
-        )
-    elif approved_n > 0:
-        st.info("All drafts have been reviewed.", icon="✅")
-
+        alerts += f'<div class="sw-alert sw-alert-warn"><span>📋</span><span><strong>{unreviewed_n} draft{"s" if unreviewed_n != 1 else ""}</strong> awaiting Editor review.</span></div>'
     if without_brief > 0:
-        st.warning(
-            f"**{without_brief} draft{'s' if without_brief != 1 else ''} without a media brief.** "
-            "Go to [Media Studio](/Media) to generate photography briefs.",
-            icon="📸",
-        )
-
+        alerts += f'<div class="sw-alert sw-alert-warn"><span>📸</span><span><strong>{without_brief} draft{"s" if without_brief != 1 else ""}</strong> without a media brief — go to Media Studio.</span></div>'
     if pending_briefs > 0:
-        st.info(
-            f"**{pending_briefs} media brief{'s' if pending_briefs != 1 else ''} pending approval.** "
-            "Go to [Media Studio → Library](/Media) to approve or reject.",
-            icon="🟡",
-        )
-
-    # ── Scheduler widget ──────────────────────────────────────────────────────
+        alerts += f'<div class="sw-alert sw-alert-info"><span>🟡</span><span><strong>{pending_briefs} media brief{"s" if pending_briefs != 1 else ""}</strong> pending approval.</span></div>'
     if unscheduled_n > 0:
-        st.warning(
-            f"**{unscheduled_n} approved draft{'s' if unscheduled_n != 1 else ''} not yet scheduled.** "
-            "Go to [Calendar → Schedule a Draft](/7_Calendar) to add them to the calendar.",
-            icon="🗓",
-        )
+        alerts += f'<div class="sw-alert sw-alert-warn"><span>🗓</span><span><strong>{unscheduled_n} approved draft{"s" if unscheduled_n != 1 else ""}</strong> not yet scheduled — go to Calendar.</span></div>'
     elif scheduled_n > 0:
-        st.success(
-            f"**{scheduled_n} post{'s' if scheduled_n != 1 else ''} scheduled and ready to go.** "
-            "View them in [Calendar](/7_Calendar).",
-            icon="🗓",
-        )
+        alerts += f'<div class="sw-alert sw-alert-success"><span>🗓</span><span><strong>{scheduled_n} post{"s" if scheduled_n != 1 else ""}</strong> scheduled and ready to go.</span></div>'
+
+    if alerts:
+        st.markdown(f'<div class="sw-section-label">Pipeline Status</div>{alerts}', unsafe_allow_html=True)
 
 st.divider()
 
-# ─── Recent research widget ───────────────────────────────────────────────────
+# ── Recent research ───────────────────────────────────────────────────────────
 
-st.subheader("Recent Research")
+st.markdown('<div class="sw-section-label">Recent Research</div>', unsafe_allow_html=True)
 
 if product is None:
-    st.info("No client set up yet — seed data in Brand Brain to get started.")
+    st.markdown('<div class="sw-alert sw-alert-info"><span>No client set up yet.</span></div>', unsafe_allow_html=True)
 else:
     try:
         with get_connection() as conn:
-            recent_items = conn.execute(
-                """
-                SELECT source_title, title, source_url, relevance_score,
-                       topic, fetched_at
-                FROM research_items
-                WHERE product_id = ?
-                ORDER BY fetched_at DESC
-                LIMIT 3
-                """,
+            rows_db = conn.execute(
+                """SELECT source_title, title, source_url, relevance_score, topic, fetched_at
+                   FROM research_items WHERE product_id = ?
+                   ORDER BY fetched_at DESC LIMIT 5""",
                 (product["product_id"],),
             ).fetchall()
     except Exception:
-        recent_items = []
+        rows_db = []
 
-    if not recent_items:
-        st.info(
-            "No research yet — go to **Research → Run Research** to gather your first signals.",
-            icon="🔍",
-        )
+    if not rows_db:
+        st.markdown('<div class="sw-alert sw-alert-info"><span>🔍</span><span>No research yet — go to <strong>Research → Run Research</strong>.</span></div>', unsafe_allow_html=True)
     else:
-        for row in recent_items:
-            display_title = row["source_title"] or row["title"] or row["source_url"] or "Untitled"
+        items_html = ""
+        for row in rows_db:
+            title = row["source_title"] or row["title"] or row["source_url"] or "Untitled"
             score = row["relevance_score"] or 0
-            badge = "🟢" if score >= 8 else ("🟡" if score >= 5 else "🔴")
+            color = "#00c864" if score >= 8 else ("#f5a623" if score >= 5 else "#e85050")
             fetched = (row["fetched_at"] or "")[:10]
-            st.markdown(
-                f"{badge} **{display_title}** &nbsp; `{score}/10` &nbsp; "
-                f"*{row['topic'] or ''}* · {fetched}"
-            )
-        st.caption("See all research items in the [Research Library](/Research).")
+            topic = row["topic"] or ""
+            items_html += f"""<div class="sw-research-item">
+                <div class="sw-research-score" style="color:{color};">{score}/10</div>
+                <div class="sw-research-title">{title}</div>
+                <div class="sw-research-meta">{topic} · {fetched}</div>
+            </div>"""
+        st.markdown(items_html, unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Inter,sans-serif;font-size:0.74rem;color:#484870;margin-top:0.4rem;">See all research in the Research Library page.</div>', unsafe_allow_html=True)
