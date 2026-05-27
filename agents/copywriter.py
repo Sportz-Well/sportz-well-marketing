@@ -30,7 +30,7 @@ CSV_LOG_PATH = PROJECT_ROOT / "data" / "api_log.csv"
 _INPUT_COST_PER_TOKEN  = 3.00  / 1_000_000
 _OUTPUT_COST_PER_TOKEN = 15.00 / 1_000_000
 
-_VALID_PLATFORMS   = {"instagram", "facebook"}
+_VALID_PLATFORMS   = {"instagram", "facebook", "linkedin"}
 _VALID_CTA         = {"hard_cta", "soft_cta", "no_cta"}
 _VALID_CONTENT_FMT = {"single_image", "carousel", "text_post", "reel_script", "video_script"}
 
@@ -84,8 +84,10 @@ def write_drafts_for_angle(angle_id: int, regenerate: bool = False) -> dict[str,
         platforms = ["instagram"]
     elif platform_fit == "facebook":
         platforms = ["facebook"]
+    elif platform_fit == "linkedin":
+        platforms = ["linkedin"]
     else:
-        platforms = ["instagram", "facebook"]
+        platforms = ["instagram", "facebook", "linkedin"]
 
     if not regenerate:
         existing = _fetch_existing_drafts(angle_id)
@@ -319,6 +321,18 @@ This rule applies recursively to every string in carousel_slides, reel_script.vo
 - For text_post format: pure text, no image prompt needed, may run up to 250 words if the substance warrants it
 - For carousel: same 5–8 slide structure as Instagram
 
+### LINKEDIN
+- Caption length: 150–300 words for single_image and text_post
+- Formats: single_image and text_post only. Do NOT produce carousel or reel_script for LinkedIn.
+- Tone: B2B professional. Write for academy directors, head coaches, and sports institution operators — not parents or young players. Longer paragraphs are appropriate. Avoid casual language, emojis, and consumer-facing energy.
+- Hook in line 1 — LinkedIn rewards a strong opening statement or pointed question that is relevant to a professional decision-maker. Banned openers: 'In today's world...', 'Did you know...', 'Imagine if...', 'Let's talk about...'. Good openers frame a professional problem or insight directly: 'Most cricket academies track attendance. Almost none track development.' or 'The hardest conversation a coach has is with a parent who does not understand what progress looks like.'
+- Structure: hook → insight or evidence → practical implication → (optional) CTA
+- Blank line between every paragraph — use \\n\\n explicitly in the JSON body field
+- Hashtags: 3–5 only, professional and topic-specific. Examples: #cricketcoaching, #sportsmanagement, #youthathletedevelopment, #cricketacademy, #coachingmethodology. No generic tags (#motivation, #hustle, #mondaymotivation).
+- CTA style: professional invitation, not consumer urgency. CORRECT: If your academy is evaluating structured performance tracking, SWPI was built for this — visit sportz-well.com. WRONG: Book now! Limited spots! Don't miss out!
+- No emojis anywhere in the LinkedIn body or CTA.
+- image_brief: for text_post format, set image_brief to null. For single_image, write a clean professional image brief — no bold graphics or consumer-style visuals; think: coach reviewing a tablet on a cricket ground, academy session in progress, structured training environment.
+
 ## CTA Rules — critical. The angle's cta_strength is "{cta_strength}". Match it exactly in every draft.
 
 - **no_cta**: No demo link, no book a call, nothing transactional. The post earns trust on its own merit. The cta_line field MUST be null. Do not end with any product pitch, question about interest, or implicit invitation.
@@ -396,7 +410,7 @@ If V1 starts with a pointed question about U-12 batters from the coach's perspec
 
 ### Cross-platform also applies
 
-If platform_fit is both, you produce 4 drafts: IG V1, IG V2, FB V1, FB V2. The hook differentiation rule applies across ALL FOUR — not just within a single platform. IG V1's hook mode cannot equal FB V1's hook mode. Pick 4 different combinations from the hook × perspective grid.
+If platform_fit covers multiple platforms, you produce 2 variants per platform. The hook differentiation rule applies across ALL drafts — not just within a single platform. Pick distinct (hook_strategy, perspective_focus) combinations across the full set.
 
 ### Declare your strategy
 
@@ -416,7 +430,7 @@ Output your final JSON once — do not revise, re-evaluate, or emit a second JSO
 {{
   "drafts": [
     {{
-      "platform": "instagram" or "facebook",
+      "platform": "instagram" or "facebook" or "linkedin",
       "variant_number": 1 or 2,
       "content_format": "<mirror the angle's content_format exactly: single_image | carousel | text_post | reel_script | video_script>",
       "hook_strategy": "<one of: question_hook | scenario_hook | statement_hook | story_hook | framework_hook>",
@@ -434,7 +448,7 @@ Output your final JSON once — do not revise, re-evaluate, or emit a second JSO
         "voiceover": "full VO script",
         "on_screen_text": ["text overlay 1", "text overlay 2"]
       }},
-      "image_brief": "1-2 sentences describing the visual the Media agent should produce",
+      "image_brief": "1-2 sentences describing the visual the Media agent should produce, or null for LinkedIn text_post",
       "proof_points_used": ["exact proof point strings used in this draft, subset of the angle's list"],
       "word_count": <integer — count words in body>,
       "char_count": <integer — count characters in body>
@@ -446,6 +460,7 @@ Output your final JSON once — do not revise, re-evaluate, or emit a second JSO
 IMPORTANT:
 - Set carousel_slides to null when content_format is not "carousel"
 - Set reel_script to null when content_format is not "reel_script"
+- For LinkedIn: carousel_slides and reel_script MUST always be null. Only single_image and text_post are supported.
 - Total drafts in the array must equal exactly {total_drafts} ({2} variants × {len(platforms)} platform(s): {", ".join(platforms)})
 - hook_strategy and perspective_focus are REQUIRED on every draft. Validation will fail otherwise.
 - Final reminder: NO double-quote characters inside any string value. Use single quotes for dialogue, rephrase for emphasis."""
@@ -491,7 +506,9 @@ def _build_user_prompt(angle: dict, platforms: list[str]) -> str:
 
 Produce exactly {total_drafts} drafts ({2} variants per platform). Follow all platform conventions, CTA rules, proof-point rules, and — critically — the variant differentiation rules from the system prompt.
 
-Reminder: for every draft you MUST declare a hook_strategy and perspective_focus. Sibling variants on the same platform MUST use different values for BOTH fields. If platform_fit covers both platforms, all 4 drafts should use 4 distinct (hook_strategy, perspective_focus) combinations.
+Reminder: for every draft you MUST declare a hook_strategy and perspective_focus. Sibling variants on the same platform MUST use different values for BOTH fields. All drafts across all platforms should use distinct (hook_strategy, perspective_focus) combinations where possible.
+
+Note for LinkedIn drafts: use only single_image or text_post format. No carousels, no reel scripts. Tone is B2B professional — write for academy directors and head coaches, not parents or players.
 
 Final reminder: NO double-quote characters inside any string field. Use single quotes for dialogue. Rephrase to avoid quoted emphasis."""
 
@@ -627,8 +644,19 @@ def _validate_drafts(
             continue
         seen[key] = True
 
-        # Mirror the angle's content_format — don't trust what the model echoed
-        d["content_format"] = content_format
+        # Mirror the angle's content_format — don't trust what the model echoed.
+        # LinkedIn exception: force to single_image or text_post only.
+        if platform == "linkedin":
+            if content_format not in ("single_image", "text_post"):
+                d["content_format"] = "single_image"
+                warnings.append(
+                    f"LinkedIn draft ({platform}, variant {variant}) had unsupported "
+                    f"content_format '{content_format}' — forced to 'single_image'."
+                )
+            else:
+                d["content_format"] = content_format
+        else:
+            d["content_format"] = content_format
 
         # Enforce CTA rule server-side regardless of what the model produced
         if cta_strength == "no_cta" and d.get("cta_line"):
@@ -651,17 +679,21 @@ def _validate_drafts(
                     f"'{original_cta}' → '{cleaned}'. Model added a disallowed prefix."
                 )
 
-        # Enforce carousel_slides
-        if content_format != "carousel":
+        # Enforce carousel_slides — never for LinkedIn
+        if content_format != "carousel" or platform == "linkedin":
             d["carousel_slides"] = None
         elif not isinstance(d.get("carousel_slides"), list):
             d["carousel_slides"] = None
 
-        # Enforce reel_script
-        if content_format != "reel_script":
+        # Enforce reel_script — never for LinkedIn
+        if content_format != "reel_script" or platform == "linkedin":
             d["reel_script"] = None
         elif not isinstance(d.get("reel_script"), dict):
             d["reel_script"] = None
+
+        # Enforce image_brief — null for LinkedIn text_post
+        if platform == "linkedin" and d.get("content_format") == "text_post":
+            d["image_brief"] = None
 
         # ── Variant differentiation strategy validation ──
         # Capture declared strategies for cross-variant comparison below.
@@ -708,25 +740,19 @@ def _validate_drafts(
             d["proof_points_used"] = []
         if not d.get("headline"):
             d["headline"] = ""
-        if not d.get("image_brief"):
+        if d.get("image_brief") is None and platform != "linkedin":
             d["image_brief"] = ""
 
         d["platform"]       = platform
         d["variant_number"] = variant
 
         # Drop differentiation declaration fields before persistence — validation-only.
-        # Schema is unchanged; these fields would be ignored by INSERT anyway, but explicit
-        # is better than implicit.
         d.pop("hook_strategy", None)
         d.pop("perspective_focus", None)
 
         valid.append(d)
 
     # ── Cross-variant differentiation checks ──
-    # Within each platform: V1 and V2 must declare different hook_strategy AND different perspective_focus.
-    # Across platforms (for platform_fit=both): all 4 drafts ideally use 4 distinct
-    # (hook_strategy, perspective_focus) combinations — soft warning if any combo repeats.
-
     for platform, declarations in strategies_by_platform.items():
         if len(declarations) < 2:
             continue
@@ -748,7 +774,7 @@ def _validate_drafts(
                 "review before approving."
             )
 
-    # Cross-platform check — for platform_fit=both
+    # Cross-platform check
     if len(strategies_by_platform) > 1:
         all_combos: list[tuple[str, tuple[str, str]]] = []
         for platform, declarations in strategies_by_platform.items():
@@ -800,7 +826,7 @@ def _save_drafts(drafts: list[dict], angle_id: int, product_id: int) -> int:
                     json.dumps(d.get("hashtags", [])),
                     json.dumps(d["carousel_slides"]) if d.get("carousel_slides") else None,
                     json.dumps(d["reel_script"])     if d.get("reel_script")     else None,
-                    d.get("image_brief", ""),
+                    d.get("image_brief"),
                     json.dumps(d.get("proof_points_used", [])),
                     d.get("word_count", 0),
                     d.get("char_count", 0),
