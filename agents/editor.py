@@ -142,6 +142,8 @@ range for this platform × content_format:
   Facebook  + text_post:       80–200 words
   Facebook  + carousel:       100–250 words
   Facebook  + reel_script:     80–150 words
+  LinkedIn  + single_image:   150–300 words
+  LinkedIn  + text_post:      100–250 words
 
 If word count is ABOVE the upper bound: code = "CAPTION_TOO_LONG"
 If word count is BELOW the lower bound: code = "CAPTION_TOO_SHORT"
@@ -159,6 +161,8 @@ Count the items in the hashtags array.
   Instagram: below 8 → HASHTAG_COUNT_LOW; above 15 → HASHTAG_COUNT_HIGH
   Facebook:  above 5 → HASHTAG_COUNT_HIGH
   Facebook:  do NOT flag for low count — zero hashtags is valid on Facebook
+  LinkedIn:  above 5 → HASHTAG_COUNT_HIGH
+  LinkedIn:  do NOT flag for low count — fewer than 3 is acceptable on LinkedIn
 
 Evidence: "X hashtag(s) (expected Y–Z for [platform])"
 Message: state the platform's hashtag convention.
@@ -249,10 +253,15 @@ Cross-check draft fields against its cta_strategy and content_format:
     field = "cta_line", evidence = "null/empty".
     Message: "soft_cta angle has no cta_line. A gentle mention is expected."
 
-  Rule D — content_format IN ("single_image", "carousel"):
+  Rule D — content_format IN ("single_image", "carousel") AND platform != "linkedin":
     image_brief MUST be non-null and contain at least 10 characters.
     field = "image_brief", evidence = "null/empty".
     Message: "single_image/carousel draft requires an image_brief for the Media agent."
+
+  Rule D2 — content_format = "single_image" AND platform = "linkedin":
+    image_brief MUST be non-null and contain at least 10 characters.
+    field = "image_brief", evidence = "null/empty".
+    Message: "LinkedIn single_image draft requires an image_brief for the Media agent."
 
   Rule E — content_format = "carousel":
     The "slides" field MUST have at least 2 entries.
@@ -268,6 +277,11 @@ Cross-check draft fields against its cta_strategy and content_format:
     evidence = "reel_script field is null and no shot-direction language in body".
     Message: "reel_script format requires a populated reel_script object or \
 shot-direction language in the body."
+
+  Rule G — platform = "linkedin" AND content_format NOT IN ("single_image", "text_post"):
+    field = "overall", evidence = content_format value.
+    Message: "LinkedIn only supports single_image and text_post formats. \
+Carousel and reel_script are not valid for LinkedIn."
 
 ---
 
@@ -689,8 +703,6 @@ def _parse_editor_json(text: str) -> dict[str, Any] | None:
                 continue
 
     # Strategy 4: scan for every {"issues" start position, parse with raw_decode, keep last valid.
-    # Uses a regex rather than a literal string search so it matches both compact
-    # ('{"issues"') and pretty-printed ('{\n  "issues"') forms.
     decoder   = json.JSONDecoder()
     all_valid: list[dict] = []
     for m in re.finditer(r'\{[\s\r\n]*"issues"', original):
@@ -858,12 +870,7 @@ def _error_result(draft_id: int, cost: float, error: str) -> dict[str, Any]:
 # ─── UI query helpers ─────────────────────────────────────────────────────────
 
 def get_last_run_info(product_id: int) -> dict | None:
-    """Return info about the most recent editor API call for this product.
-
-    Returns None if no calls have been logged. The 'failed' key is True when
-    notes starts with 'FAILURE:' (parse error) or 'ERROR:' (API error).
-    Matches the shape of strategist.get_last_run_info().
-    """
+    """Return info about the most recent editor API call for this product."""
     try:
         with get_connection() as conn:
             row = conn.execute(
