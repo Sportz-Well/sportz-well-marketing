@@ -40,7 +40,11 @@ def _load_json(value, default):
 
 
 def _platform_label(platform: str) -> str:
-    return "📷 Instagram" if platform == "instagram" else "🔵 Facebook"
+    return {
+        "instagram": "📷 Instagram",
+        "facebook":  "🔵 Facebook",
+        "linkedin":  "💼 LinkedIn",
+    }.get(platform, platform.capitalize())
 
 
 def _status_label(status: str) -> str:
@@ -64,14 +68,14 @@ def _format_ts(ts: str | None) -> str:
         from datetime import datetime
         cleaned = ts[:19].replace("T", " ")
         dt = datetime.strptime(cleaned, "%Y-%m-%d %H:%M:%S")
-        day   = str(dt.day)                          # no leading zero
+        day   = str(dt.day)
         month = dt.strftime("%b %Y")
-        hour  = dt.hour % 12 or 12                   # 12-hour, no leading zero
+        hour  = dt.hour % 12 or 12
         mins  = dt.strftime("%M")
         ampm  = "am" if dt.hour < 12 else "pm"
         return f"{day} {month}, {hour}:{mins} {ampm}"
     except Exception:
-        return ts[:16]  # fallback: return raw truncated string
+        return ts[:16]
 
 
 def _render_draft_card(draft: dict) -> None:
@@ -119,7 +123,7 @@ def _render_draft_card(draft: dict) -> None:
         if headline:
             st.markdown(f"**{headline}**")
 
-        # Body — display only, monospace feel via text_area
+        # Body — display only
         st.text_area(
             "body",
             value=body,
@@ -137,7 +141,7 @@ def _render_draft_card(draft: dict) -> None:
         if hashtags:
             st.markdown(" ".join(f"`{tag}`" for tag in hashtags))
 
-        # Carousel slides
+        # Carousel slides (not applicable for LinkedIn)
         if carousel_slides:
             with st.expander(f"Slides ({len(carousel_slides)})"):
                 for slide in carousel_slides:
@@ -147,7 +151,7 @@ def _render_draft_card(draft: dict) -> None:
                     st.markdown(f"**Slide {num}: {title}**")
                     st.caption(sbody)
 
-        # Reel script
+        # Reel script (not applicable for LinkedIn)
         if reel_script:
             with st.expander("Reel script"):
                 hook = reel_script.get("hook_seconds_0_3", "")
@@ -165,7 +169,7 @@ def _render_draft_card(draft: dict) -> None:
                 if on_screen:
                     st.markdown("**On-screen text:** " + " · ".join(on_screen))
 
-        # Image brief
+        # Image brief (not shown for LinkedIn text_post which has null image_brief)
         if image_brief:
             st.caption(f"🖼 Image brief: {image_brief}")
 
@@ -221,8 +225,8 @@ with tab1:
     approved_angles = get_approved_angles(product_id)
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Approved Angles",   stats["total_approved"])
-    m2.metric("Already Drafted",   stats["drafted_angles"])
+    m1.metric("Approved Angles",    stats["total_approved"])
+    m2.metric("Already Drafted",    stats["drafted_angles"])
     m3.metric("Waiting for Drafts", stats["waiting"])
 
     st.info(
@@ -315,7 +319,7 @@ with tab2:
     with f2:
         platform_filter = st.selectbox(
             "Platform",
-            ["All", "instagram", "facebook"],
+            ["All", "instagram", "facebook", "linkedin"],
             key="lib_platform",
         )
     with f3:
@@ -331,9 +335,9 @@ with tab2:
 
     drafts = get_drafts_library(
         product_id,
-        status_filter=status_filter   if status_filter   != "All" else None,
+        status_filter=status_filter    if status_filter    != "All" else None,
         platform_filter=platform_filter if platform_filter != "All" else None,
-        angle_id_filter=angle_id_filter if angle_id_filter != 0    else None,
+        angle_id_filter=angle_id_filter if angle_id_filter != 0     else None,
     )
 
     if not drafts:
@@ -369,22 +373,29 @@ with tab3:
 
     # Platform split
     st.markdown("**Platform Split**")
-    pc1, pc2 = st.columns(2)
+    pc1, pc2, pc3 = st.columns(3)
     pc1.metric("📷 Instagram", stats["by_platform"].get("instagram", 0))
     pc2.metric("🔵 Facebook",  stats["by_platform"].get("facebook",  0))
+    pc3.metric("💼 LinkedIn",  stats["by_platform"].get("linkedin",  0))
 
     st.divider()
 
     # Per-angle coverage
     st.markdown("**Per-Angle Draft Coverage**")
-    st.caption("Target: 2 drafts for single-platform angles, 4 for 'both'.")
+    st.caption("Target: 2 drafts per platform targeted by the angle (2 for single-platform, 4 for both, 6 for all three).")
 
     coverage = get_angle_draft_coverage(product_id)
     if not coverage:
         st.info("No approved angles yet.")
     else:
         for row in coverage:
-            target = 4 if row.get("platform_fit") == "both" else 2
+            platform_fit = row.get("platform_fit", "both")
+            if platform_fit in ("instagram", "facebook", "linkedin"):
+                target = 2
+            elif platform_fit == "both":
+                target = 6   # all three platforms now
+            else:
+                target = 6
             actual = int(row["draft_count"])
             label  = f"[{row['id']}] {row['angle_title']}"
             pct    = min(actual / target, 1.0) if target else 0.0
