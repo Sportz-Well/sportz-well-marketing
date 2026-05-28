@@ -1,8 +1,8 @@
 """Strategist agent — second agent in the pipeline.
 
 Reads research_items from the DB, clusters them by theme, and proposes
-2–4 story angles per theme for Instagram + Facebook. No web search —
-pure reasoning over existing data.
+2–4 story angles per theme for Instagram, Facebook, and/or LinkedIn.
+No web search — pure reasoning over existing data.
 
 Brand-aware constraints enforced:
   - Vision-hint quota: ≤ 1 in 20 angles may use phase_2_hint or phase_3_hint
@@ -34,7 +34,7 @@ CSV_LOG_PATH = PROJECT_ROOT / "data" / "api_log.csv"
 _INPUT_COST_PER_TOKEN  = 3.00  / 1_000_000
 _OUTPUT_COST_PER_TOKEN = 15.00 / 1_000_000
 
-_VALID_PLATFORM_FIT  = {"instagram", "facebook", "both"}
+_VALID_PLATFORM_FIT  = {"instagram", "facebook", "linkedin", "both"}
 _VALID_PHASE_TAG     = {"phase_1", "phase_2_hint", "phase_3_hint", "founder_credibility", "evergreen"}
 _VALID_FUNNEL_STAGE  = {"awareness", "consideration", "demo_pitch"}
 _VALID_CONTENT_FMT   = {"single_image", "carousel", "video_script", "text_post", "reel_script"}
@@ -186,7 +186,18 @@ def _build_system_prompt(
 
 ## Your Role
 
-Given research items, you cluster them into themes and propose story angles for Instagram and/or Facebook. You do NOT write the posts — you write angle premises and editorial briefs that the Copywriter agent will use.
+Given research items, you cluster them into themes and propose story angles for Instagram, Facebook, and/or LinkedIn. You do NOT write the posts — you write angle premises and editorial briefs that the Copywriter agent will use.
+
+## Platform Guidance for platform_fit
+
+Choose platform_fit based on the angle's content and audience:
+
+- **instagram** — visual-first content, parent and player audience, emotional hooks, shorter punchy angles
+- **facebook** — community content, slightly older academy parent audience, slightly more editorial
+- **linkedin** — B2B professional content targeting academy directors, head coaches, and sports institution operators. Longer-form insights, methodology, management, and performance tracking topics. Use linkedin when the angle is about: coaching methodology, academy management, performance data, coach development, institutional decisions, or anything a decision-maker in a sports organisation would read.
+- **both** — angles that work equally well on Instagram and Facebook (consumer-facing)
+
+**LinkedIn guidance:** Aim for 2–3 LinkedIn angles per batch when the research supports it. LinkedIn angles must be genuinely B2B in nature — do not force consumer content onto LinkedIn. Good LinkedIn topics: structured player development frameworks, data-driven coaching decisions, academy operations, coach–parent communication systems, selection methodology.
 
 ## Hard Constraints — verify each before returning JSON
 
@@ -207,9 +218,13 @@ Every angle MUST map to one or more of the brand's owned topics. No angle may to
 - soft_cta (gentle product or demo mention): ~40% of total angles
 - no_cta (pure trust-building content): ~40% of total angles
 Do not force a CTA onto every angle — trust-building content is more valuable long-term.
+LinkedIn angles with hard_cta should use professional invitation style, not consumer urgency.
 
 ### CONSTRAINT 5: Voice
 Every angle_title, angle_description, and editorial_brief must reflect the brand voice: Expert, Structured, Purposeful. No hype, no celebrity drama, no generic fitness content, no superlatives.
+
+### CONSTRAINT 6: LinkedIn content format
+LinkedIn angles must use only "single_image" or "text_post" as content_format. Never assign "carousel" or "reel_script" to a LinkedIn angle.
 
 ## Output Format
 
@@ -223,8 +238,8 @@ Return ONLY the JSON object below. Do not wrap it in markdown code fences. Do no
         {{
           "angle_title": "short punchy title, max 10 words",
           "angle_description": "2–3 sentences: what is this post about and what key insight does it share?",
-          "editorial_brief": "1 paragraph for the Copywriter: what to say, tone notes, which proof points to use and how",
-          "platform_fit": "instagram" or "facebook" or "both",
+          "editorial_brief": "1 paragraph for the Copywriter: what to say, tone notes, which proof points to use and how. For LinkedIn angles, note the B2B professional tone and decision-maker audience explicitly.",
+          "platform_fit": "instagram" or "facebook" or "linkedin" or "both",
           "phase_tag": "phase_1" or "phase_2_hint" or "phase_3_hint" or "founder_credibility" or "evergreen",
           "funnel_stage": "awareness" or "consideration" or "demo_pitch",
           "content_format": "single_image" or "carousel" or "video_script" or "text_post" or "reel_script",
@@ -257,6 +272,7 @@ def _build_user_prompt(
         )
 
     lines.append(f"\nPropose up to {max_angles} story angles total (2–4 per theme, 2–5 themes).")
+    lines.append("Include 2–3 LinkedIn-specific angles where the research supports B2B professional content.")
     if focus:
         lines.append(f"\nEditorial focus for this run: {focus.strip()}")
     else:
@@ -334,11 +350,15 @@ def _validate_themes(themes: list) -> list[dict]:
             if not a.get("angle_title") or not a.get("angle_description"):
                 continue
 
-            a["platform_fit"]  = a.get("platform_fit",  "both")      if a.get("platform_fit")  in _VALID_PLATFORM_FIT  else "both"
-            a["phase_tag"]     = a.get("phase_tag",     "phase_1")   if a.get("phase_tag")     in _VALID_PHASE_TAG     else "phase_1"
-            a["funnel_stage"]  = a.get("funnel_stage",  "awareness") if a.get("funnel_stage")  in _VALID_FUNNEL_STAGE  else "awareness"
-            a["content_format"]= a.get("content_format","single_image") if a.get("content_format") in _VALID_CONTENT_FMT else "single_image"
-            a["cta_strength"]  = a.get("cta_strength",  "no_cta")    if a.get("cta_strength")  in _VALID_CTA_STRENGTH  else "no_cta"
+            a["platform_fit"]   = a.get("platform_fit",  "both")         if a.get("platform_fit")   in _VALID_PLATFORM_FIT  else "both"
+            a["phase_tag"]      = a.get("phase_tag",     "phase_1")      if a.get("phase_tag")      in _VALID_PHASE_TAG     else "phase_1"
+            a["funnel_stage"]   = a.get("funnel_stage",  "awareness")    if a.get("funnel_stage")   in _VALID_FUNNEL_STAGE  else "awareness"
+            a["content_format"] = a.get("content_format","single_image") if a.get("content_format") in _VALID_CONTENT_FMT   else "single_image"
+            a["cta_strength"]   = a.get("cta_strength",  "no_cta")       if a.get("cta_strength")   in _VALID_CTA_STRENGTH  else "no_cta"
+
+            # LinkedIn format enforcement — carousel and reel_script not valid
+            if a["platform_fit"] == "linkedin" and a["content_format"] not in ("single_image", "text_post"):
+                a["content_format"] = "single_image"
 
             if not isinstance(a.get("source_research_ids"), list):
                 a["source_research_ids"] = []
@@ -452,8 +472,8 @@ def _save_angles(themes: list[dict], product_id: int) -> int:
                     """,
                     (
                         product_id,
-                        angle_title,   # legacy title column
-                        angle_desc,    # legacy angle column
+                        angle_title,
+                        angle_desc,
                         theme_name,
                         angle_title,
                         angle_desc,
@@ -539,11 +559,7 @@ def count_research_items(product_id: int, min_relevance: int) -> int:
 
 
 def get_last_run_info(product_id: int) -> dict | None:
-    """Return info about the most recent strategist API call for this product.
-
-    Returns None if no calls have been logged. The 'failed' key is True when
-    the notes field starts with 'FAILURE:' (parse error) or 'ERROR:' (API error).
-    """
+    """Return info about the most recent strategist API call for this product."""
     try:
         with get_connection() as conn:
             row = conn.execute(
