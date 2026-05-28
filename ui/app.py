@@ -35,6 +35,15 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@300;400;500&display=swap');
 
+/* ── Hide Streamlit chrome — header, toolbar, footer ── */
+#MainMenu { visibility: hidden; }
+header[data-testid="stHeader"] {
+    background-color: #080810 !important;
+    border-bottom: 1px solid #1e1e35 !important;
+}
+[data-testid="stToolbar"] { display: none !important; }
+footer { visibility: hidden; }
+
 .stApp { background-color: #080810; color: #e8e8f0; }
 
 [data-testid="stSidebar"] {
