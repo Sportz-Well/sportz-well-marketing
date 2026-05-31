@@ -1,6 +1,6 @@
 """Strategist agent — second agent in the pipeline.
 
-Reads research_items from the DB, clusters them by theme, and proposes
+Reads research_items from the DB, clusters them into themes, and proposes
 2–4 story angles per theme for Instagram, Facebook, and/or LinkedIn.
 No web search — pure reasoning over existing data.
 
@@ -49,18 +49,7 @@ def propose_story_angles(
     max_angles: int = 12,
     focus: str | None = None,
 ) -> dict[str, Any]:
-    """Cluster research items into themes and propose story angles.
-
-    Returns:
-        {
-            "themes_identified": int,
-            "angles_proposed":   int,
-            "est_cost_usd":      float,
-            "angles":            list[dict],   # flat list across all themes
-            "warnings":          list[str],
-            "error":             str | None,
-        }
-    """
+    """Cluster research items into themes and propose story angles."""
     research_items = _fetch_research_items(product_id, min_relevance)
     if not research_items:
         return {
@@ -122,21 +111,15 @@ def propose_story_angles(
     themes   = parse_result.get("themes", [])
     warnings = list(parse_result.get("warnings", []))
 
-    # Validate angle structure and coerce enum fields
     themes = _validate_themes(themes)
-
-    # Flatten angles for quota checks (mutates themes in-place)
     warnings += _enforce_vision_quota(themes, max_vision_hints)
     warnings += _enforce_sparing_quota(themes, sparing_pps, max_sparing_uses)
 
-    # Cap total angles at max_angles
     themes, cap_warning = _cap_angles(themes, max_angles)
     if cap_warning:
         warnings.append(cap_warning)
 
-    # Save to DB
     saved = _save_angles(themes, product_id)
-
     all_angles = [a for t in themes for a in t.get("angles", [])]
 
     _log_api_call(
@@ -190,45 +173,73 @@ Given research items, you cluster them into themes and propose story angles for 
 
 ## Platform Guidance for platform_fit
 
-Choose platform_fit based on the angle's content and audience:
+Choose platform_fit deliberately based on audience and content type. Do NOT default to "both" unless the angle genuinely and equally serves both the Instagram and Facebook audiences.
 
-- **instagram** — visual-first content, parent and player audience, emotional hooks, shorter punchy angles
-- **facebook** — community content, slightly older academy parent audience, slightly more editorial
-- **linkedin** — B2B professional content targeting academy directors, head coaches, and sports institution operators. Longer-form insights, methodology, management, and performance tracking topics. Use linkedin when the angle is about: coaching methodology, academy management, performance data, coach development, institutional decisions, or anything a decision-maker in a sports organisation would read.
-- **both** — angles that work equally well on Instagram and Facebook (consumer-facing)
+### INSTAGRAM
+- **Audience:** Young cricketers (U10–U17) and parents who are emotionally invested in their child's journey.
+- **Tone:** Visual-first, aspirational, energetic, punchy. The image carries 70% of the story — the caption supports it.
+- **Caption style:** Short and impactful. Hook line + 2–3 tight paragraphs. 80–130 words max.
+- **Best angles:** Player development moments, training insights, technique tips, youth inspiration, match preparation, academy culture.
+- **Key distinction:** Speaks to the player's journey and the emotionally engaged parent.
 
-**LinkedIn guidance:** Aim for 2–3 LinkedIn angles per batch when the research supports it. LinkedIn angles must be genuinely B2B in nature — do not force consumer content onto LinkedIn. Good LinkedIn topics: structured player development frameworks, data-driven coaching decisions, academy operations, coach–parent communication systems, selection methodology.
+### FACEBOOK
+- **Audience:** Parents aged 30–50 who are evaluating, deciding, and comparing cricket academies for their child.
+- **Tone:** Reassuring, informative, community-focused. Concise but impactful — every word earns its place.
+- **Caption style:** 60–120 words. The image does visual work; the words build trust and answer parent concerns.
+- **Best angles:** Academy safety and structure, coach–parent communication, progress reporting, selection process transparency, what parents should look for in a good academy.
+- **Key distinction:** Speaks to the PARENT making decisions — not the player. Same family as Instagram, completely different mindset.
 
-## Hard Constraints — verify each before returning JSON
+### LINKEDIN
+- **Audience:** Academy directors, head coaches, sports institution operators. B2B decision-makers.
+- **Tone:** Professional, evidence-based, detailed. Longer-form is expected and appropriate.
+- **Caption style:** 150–300 words. Detailed insight is a feature, not a bug, for this audience.
+- **Best angles:** Coaching methodology, academy management, performance data systems, coach development, institutional decisions, structured player assessment frameworks.
+- **LinkedIn content format rule:** Only single_image or text_post. Never carousel or reel_script.
+
+### BOTH (Instagram + Facebook)
+- Use ONLY when the angle serves BOTH the young-player/aspirational-parent audience (IG) AND the decision-making parent audience (FB) equally well.
+- When in doubt: pick the primary platform. Do NOT use "both" as a default.
+- Good "both" examples: a factual cricket development news story, a general academy milestone, a coach philosophy that resonates with both audiences.
+
+### X / Twitter — FUTURE PLATFORM
+- X is on the product roadmap as a fourth platform. It is NOT yet supported.
+- Do NOT assign platform_fit = "twitter" or "x".
+- If an angle would naturally suit short punchy viral content (X-style), note it in the editorial_brief as: "Potential X/Twitter angle for future use."
+- This flags it for when X support is added without disrupting current pipeline.
+
+### Blog and Newsletter — FUTURE INTEGRATION
+- Blogs (weekly) and newsletters (fortnightly) are on the roadmap.
+- Once live, Facebook and LinkedIn posts should reference the blog as a secondary CTA.
+- Do NOT include blog or newsletter links yet — they do not exist.
+- If an angle has strong long-form potential, note in editorial_brief: "Strong blog expansion candidate."
+
+## Hard Constraints
 
 ### CONSTRAINT 1: Vision-hint quota
-At most {max_vision_hints} angle(s) in this batch may use phase_tag "phase_2_hint" or "phase_3_hint".
-Before finalising your JSON: count phase_2_hint + phase_3_hint tags. If count > {max_vision_hints}, change the excess to "phase_1" or "evergreen" and add a warning.
+At most {max_vision_hints} angle(s) may use phase_tag "phase_2_hint" or "phase_3_hint".
 Vision hints are subtle asides — never make them the headline. Never say "SWPI will soon..." or "coming soon."
 
 ### CONSTRAINT 2: Sparing proof points
-Proof points labelled "Use sparingly" may appear in proof_points_used in at most {max_sparing_uses} angle(s) total.
-If you exceed this limit, remove sparing proof points from the excess angles and add a warning.
+Proof points labelled "Use sparingly" may appear in at most {max_sparing_uses} angle(s) total.
 
 ### CONSTRAINT 3: Topics
-Every angle MUST map to one or more of the brand's owned topics. No angle may touch any avoided topic.
+Every angle MUST map to one or more of the brand's owned topics. No avoided topics.
 
-### CONSTRAINT 4: CTA distribution (approximate, across the full batch)
-- hard_cta (direct "book a demo" call to action): ~20% of total angles
-- soft_cta (gentle product or demo mention): ~40% of total angles
-- no_cta (pure trust-building content): ~40% of total angles
-Do not force a CTA onto every angle — trust-building content is more valuable long-term.
-LinkedIn angles with hard_cta should use professional invitation style, not consumer urgency.
+### CONSTRAINT 4: CTA distribution
+- hard_cta: ~20% of angles
+- soft_cta: ~40% of angles
+- no_cta: ~40% of angles
+LinkedIn hard_cta must use professional invitation style, not consumer urgency.
 
 ### CONSTRAINT 5: Voice
-Every angle_title, angle_description, and editorial_brief must reflect the brand voice: Expert, Structured, Purposeful. No hype, no celebrity drama, no generic fitness content, no superlatives.
+Expert, Structured, Purposeful. No hype, no celebrity drama, no superlatives.
 
-### CONSTRAINT 6: LinkedIn content format
-LinkedIn angles must use only "single_image" or "text_post" as content_format. Never assign "carousel" or "reel_script" to a LinkedIn angle.
+### CONSTRAINT 6: LinkedIn format
+LinkedIn angles: only "single_image" or "text_post". Never "carousel" or "reel_script".
 
 ## Output Format
 
-Return ONLY the JSON object below. Do not wrap it in markdown code fences. Do not write any prose before or after the JSON.
+Return ONLY the JSON object below. No markdown fences. No prose before or after.
 
 {{
   "themes": [
@@ -238,19 +249,19 @@ Return ONLY the JSON object below. Do not wrap it in markdown code fences. Do no
         {{
           "angle_title": "short punchy title, max 10 words",
           "angle_description": "2–3 sentences: what is this post about and what key insight does it share?",
-          "editorial_brief": "1 paragraph for the Copywriter: what to say, tone notes, which proof points to use and how. For LinkedIn angles, note the B2B professional tone and decision-maker audience explicitly.",
+          "editorial_brief": "1 paragraph for the Copywriter: what to say, tone notes, proof points. For Instagram: note visual-first approach and what the image should show. For Facebook: note parent-focused reassuring tone. For LinkedIn: note B2B professional tone explicitly. Include 'Potential X/Twitter angle' or 'Strong blog expansion candidate' notes where relevant.",
           "platform_fit": "instagram" or "facebook" or "linkedin" or "both",
           "phase_tag": "phase_1" or "phase_2_hint" or "phase_3_hint" or "founder_credibility" or "evergreen",
           "funnel_stage": "awareness" or "consideration" or "demo_pitch",
           "content_format": "single_image" or "carousel" or "video_script" or "text_post" or "reel_script",
           "cta_strength": "hard_cta" or "soft_cta" or "no_cta",
           "source_research_ids": [<integer IDs of research items that inform this angle>],
-          "proof_points_used": ["exact proof point string as listed in Brand Context above, or empty list if none fit naturally"]
+          "proof_points_used": ["exact proof point string as listed in Brand Context, or empty list"]
         }}
       ]
     }}
   ],
-  "warnings": ["list any quota enforcement actions taken, e.g. capped vision hints; empty array if no warnings"]
+  "warnings": ["quota enforcement actions taken; empty array if none"]
 }}"""
 
 
@@ -272,7 +283,8 @@ def _build_user_prompt(
         )
 
     lines.append(f"\nPropose up to {max_angles} story angles total (2–4 per theme, 2–5 themes).")
-    lines.append("Include 2–3 LinkedIn-specific angles where the research supports B2B professional content.")
+    lines.append("Platform mix target: ~3 Instagram angles, ~3 Facebook angles, ~2–3 LinkedIn angles, remainder 'both' only where genuinely appropriate.")
+    lines.append("Remember: Instagram = young player/emotional parent. Facebook = decision-making parent. LinkedIn = academy director/coach. These are DIFFERENT audiences with DIFFERENT messages.")
     if focus:
         lines.append(f"\nEditorial focus for this run: {focus.strip()}")
     else:
@@ -284,29 +296,18 @@ def _build_user_prompt(
 # ─── JSON parsing ─────────────────────────────────────────────────────────────
 
 def _parse_strategist_json(text: str) -> dict[str, Any] | None:
-    """Extract and parse the JSON blob from the model's response.
-
-    Three extraction strategies tried in order, each with trailing-comma cleanup:
-      1. Content captured inside a ```(json)? ... ``` block (non-greedy, handles
-         prose before/after the fence and Windows CRLF line endings).
-      2. Raw text after stripping fences with simple regexes (belt-and-braces).
-      3. Substring from the first { to the last } in the full response.
-    """
     original = text.strip()
     candidates: list[str] = []
 
-    # Strategy 1: non-greedy capture inside code fence — most reliable
     fence_match = re.search(r"```(?:json)?\s*\r?\n?([\s\S]*?)\r?\n?```", original)
     if fence_match:
         candidates.append(fence_match.group(1).strip())
 
-    # Strategy 2: strip opening/closing fences with simple regexes
     stripped = re.sub(r"^```(?:json)?\s*\r?\n?", "", original)
     stripped = re.sub(r"\r?\n?```\s*$", "", stripped).strip()
     if stripped and stripped not in candidates:
         candidates.append(stripped)
 
-    # Strategy 3: first { to last } — catches prose before/after the JSON block
     first_brace = original.find("{")
     last_brace  = original.rfind("}")
     if first_brace != -1 and last_brace > first_brace:
@@ -315,7 +316,6 @@ def _parse_strategist_json(text: str) -> dict[str, Any] | None:
             candidates.append(brace_extract)
 
     for candidate in candidates:
-        # Try with trailing-comma cleanup first (common model quirk)
         cleaned = re.sub(r",(\s*[}\]])", r"\1", candidate)
         for attempt in (cleaned, candidate):
             try:
@@ -331,7 +331,6 @@ def _parse_strategist_json(text: str) -> dict[str, Any] | None:
 # ─── Validation and quota enforcement ────────────────────────────────────────
 
 def _validate_themes(themes: list) -> list[dict]:
-    """Validate angle structure and coerce invalid enum values to safe defaults."""
     if not isinstance(themes, list):
         return []
 
@@ -356,7 +355,7 @@ def _validate_themes(themes: list) -> list[dict]:
             a["content_format"] = a.get("content_format","single_image") if a.get("content_format") in _VALID_CONTENT_FMT   else "single_image"
             a["cta_strength"]   = a.get("cta_strength",  "no_cta")       if a.get("cta_strength")   in _VALID_CTA_STRENGTH  else "no_cta"
 
-            # LinkedIn format enforcement — carousel and reel_script not valid
+            # LinkedIn format enforcement
             if a["platform_fit"] == "linkedin" and a["content_format"] not in ("single_image", "text_post"):
                 a["content_format"] = "single_image"
 
@@ -378,7 +377,6 @@ def _validate_themes(themes: list) -> list[dict]:
 
 
 def _enforce_vision_quota(themes: list[dict], max_hints: int) -> list[str]:
-    """Cap phase_2_hint + phase_3_hint angles. Returns list of warning strings."""
     vision_tags = {"phase_2_hint", "phase_3_hint"}
     count = 0
     warnings = []
@@ -392,7 +390,7 @@ def _enforce_vision_quota(themes: list[dict], max_hints: int) -> list[str]:
                     angle["phase_tag"] = "phase_1"
                     warnings.append(
                         f"Vision-hint quota enforced: changed \"{angle['angle_title']}\" "
-                        f"phase_tag from vision-hint to phase_1 (limit is {max_hints})."
+                        f"phase_tag to phase_1 (limit is {max_hints})."
                     )
 
     return warnings
@@ -403,7 +401,6 @@ def _enforce_sparing_quota(
     sparing_proof_points: list[str],
     max_uses: int,
 ) -> list[str]:
-    """Cap angles using sparing proof points. Returns list of warning strings."""
     if not sparing_proof_points:
         return []
 
@@ -430,7 +427,6 @@ def _enforce_sparing_quota(
 
 
 def _cap_angles(themes: list[dict], max_angles: int) -> tuple[list[dict], str | None]:
-    """Trim angles across themes to stay within max_angles. Returns (themes, warning|None)."""
     total = sum(len(t["angles"]) for t in themes)
     if total <= max_angles:
         return themes, None
@@ -498,7 +494,6 @@ def _save_angles(themes: list[dict], product_id: int) -> int:
 # ─── Cost and logging ─────────────────────────────────────────────────────────
 
 def _log_failed_response(raw_text: str) -> None:
-    """Append the full raw model response to data/strategist_failed_responses.log."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     log_path = PROJECT_ROOT / "data" / "strategist_failed_responses.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -559,7 +554,6 @@ def count_research_items(product_id: int, min_relevance: int) -> int:
 
 
 def get_last_run_info(product_id: int) -> dict | None:
-    """Return info about the most recent strategist API call for this product."""
     try:
         with get_connection() as conn:
             row = conn.execute(
