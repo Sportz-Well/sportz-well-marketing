@@ -64,7 +64,8 @@ def write_drafts_for_angle(angle_id: int, regenerate: bool = False) -> dict[str,
     elif platform_fit == "linkedin":
         platforms = ["linkedin"]
     else:
-        platforms = ["instagram", "facebook", "linkedin"]
+        # "both" = instagram + facebook only. LinkedIn must be explicitly assigned.
+        platforms = ["instagram", "facebook"]
 
     if not regenerate:
         existing = _fetch_existing_drafts(angle_id)
