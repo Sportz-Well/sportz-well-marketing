@@ -75,7 +75,7 @@ def propose_story_angles(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         model=DEFAULT_MODEL,
-        max_tokens=4096,
+        max_tokens=8192,
     )
 
     cost = _estimate_cost(api_result["input_tokens"], api_result["output_tokens"])
@@ -324,6 +324,20 @@ def _parse_strategist_json(text: str) -> dict[str, Any] | None:
                     return parsed
             except json.JSONDecodeError:
                 continue
+
+    # Strategy 4: scan for every {"themes" start position, parse with raw_decode, keep last valid.
+    # Handles model self-correction patterns where two JSON blocks appear with prose between them.
+    decoder   = json.JSONDecoder()
+    all_valid: list[dict] = []
+    for m in re.finditer(r'\{[\s\r\n]*"themes"', original):
+        try:
+            parsed, _ = decoder.raw_decode(original, m.start())
+            if isinstance(parsed, dict) and "themes" in parsed:
+                all_valid.append(parsed)
+        except json.JSONDecodeError:
+            pass
+    if all_valid:
+        return all_valid[-1]
 
     return None
 
