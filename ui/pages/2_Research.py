@@ -20,14 +20,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import streamlit as st
 
-from db.init_db import init_db
+from services.page_utils import init_page
 from services.brand_context import get_active_product
 from services.database import get_connection
 from agents.researcher import GEOGRAPHY_OPTIONS
 
 st.set_page_config(page_title="Research — Sportz-Well", page_icon="🔍", layout="wide")
 
-init_db()
+init_page()
 
 
 # ─── Display helpers ──────────────────────────────────────────────────────────

@@ -21,14 +21,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import streamlit as st
 
-from db.init_db import init_db
+from services.page_utils import init_page
 from services.brand_context import get_active_product
 from services.database import get_connection
 from agents.strategist import count_research_items, count_approved_angles, get_last_run_info
 
 st.set_page_config(page_title="Strategy — Sportz-Well", page_icon="🎯", layout="wide")
 
-init_db()
+init_page()
 
 
 # ─── Badge helpers ────────────────────────────────────────────────────────────
