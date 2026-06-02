@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -30,7 +31,13 @@ from services.brand_context import (
     get_active_partner_brands,
 )
 
-init_db()
+# ── Run init_db once per server lifecycle, not on every page load ─────────────
+@st.cache_resource
+def _init_db_once():
+    init_db()
+    return True
+
+_init_db_once()
 
 st.set_page_config(
     page_title="Brand Brain — Sportz-Well",
@@ -212,6 +219,11 @@ def _freq_label_to_value() -> dict[str, str]:
 def _freq_value_to_label(value: str) -> str:
     inv = {v: k for k, v in _freq_label_to_value().items()}
     return inv.get(value, "Rare — ~1 in 20 posts")
+
+
+def _now() -> str:
+    """Return current UTC datetime as a string matching SQLite's datetime('now') format."""
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ─── Tab A: Overview ──────────────────────────────────────────────────────────
@@ -566,11 +578,11 @@ def _render_edit() -> None:
             conn.execute(
                 """
                 INSERT INTO brand_profiles (product_id, profile_data, updated_at)
-                VALUES (?, ?, datetime('now'))
+                VALUES (?, ?, ?)
                 ON CONFLICT(product_id) DO UPDATE SET
                     profile_data=excluded.profile_data, updated_at=excluded.updated_at
                 """,
-                (prod_id, json.dumps(new_profile)),
+                (prod_id, json.dumps(new_profile), _now()),
             )
             vision_freq_value = freq_map[vision_freq_label]
             for rule_key, rule_value, rule_desc in [
@@ -652,7 +664,6 @@ def _render_partners() -> None:
     st.divider()
 
     # ── Partner table ──
-    # Track pending edit and pending delete in session state
     if "pb_editing" not in st.session_state:
         st.session_state.pb_editing = None
     if "pb_pending_delete" not in st.session_state:
@@ -676,7 +687,6 @@ def _render_partners() -> None:
             st.session_state.pb_editing        = None
             st.rerun()
 
-        # Confirmation banner for delete
         if st.session_state.pb_pending_delete == pb_id:
             st.warning(f"Delete **{pb['name']}**? This cannot be undone.")
             c1, c2, _ = st.columns([1, 1, 4])
@@ -690,7 +700,6 @@ def _render_partners() -> None:
                 st.session_state.pb_pending_delete = None
                 st.rerun()
 
-        # Inline edit form
         if st.session_state.pb_editing == pb_id:
             with st.form(f"edit_partner_{pb_id}"):
                 c1, c2 = st.columns(2)
@@ -726,7 +735,6 @@ def _render_partners() -> None:
 def _do_seed() -> None:
     """Drop existing Sportz-Well / SWPI data and reinsert canonical seed rows."""
     with get_connection() as conn:
-        # CASCADE removes products, phases, profiles, partner_brands, content_rules
         conn.execute("DELETE FROM organizations WHERE name = 'Sportz-Well'")
 
         org_id = conn.execute(
@@ -757,8 +765,8 @@ def _do_seed() -> None:
             )
 
         conn.execute(
-            "INSERT INTO brand_profiles (product_id, profile_data, updated_at) VALUES (?, ?, datetime('now'))",
-            (prod_id, json.dumps(_SEED_PROFILE)),
+            "INSERT INTO brand_profiles (product_id, profile_data, updated_at) VALUES (?, ?, ?)",
+            (prod_id, json.dumps(_SEED_PROFILE), _now()),
         )
 
         for rule in _SEED_RULES:
@@ -811,7 +819,6 @@ TAB_LABELS = [
 if "bb_tab" not in st.session_state:
     st.session_state.bb_tab = 0
 
-# Button-based tab navigation (supports programmatic switching via session state)
 nav_cols = st.columns(len(TAB_LABELS))
 for idx, (col, label) in enumerate(zip(nav_cols, TAB_LABELS)):
     btn_type = "primary" if st.session_state.bb_tab == idx else "secondary"
