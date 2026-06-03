@@ -121,12 +121,23 @@ h1, h2, h3, h4, h5, h6 {
 /* ── Divider ── */
 [data-testid="stDivider"] { border-color: #1a1a2e !important; }
 
-/* ── Input fields ── */
+/* ── Input fields — ALL states including disabled and read-only ── */
 .stTextInput > div > div > input,
-.stTextArea > div > div > textarea {
+.stTextInput > div > div > input:disabled,
+.stTextInput > div > div > input[readonly],
+.stTextArea > div > div > textarea,
+.stTextArea > div > div > textarea:disabled,
+.stTextArea > div > div > textarea[readonly],
+textarea,
+textarea:disabled,
+textarea[disabled],
+textarea[readonly] {
     background-color: #0d0d1a !important;
     border-color: #2a2a4a !important;
     color: #e8e8f0 !important;
+    /* Chrome overrides color on disabled — this forces it */
+    -webkit-text-fill-color: #e8e8f0 !important;
+    opacity: 1 !important;
 }
 .stTextInput > div > div > input:focus,
 .stTextArea > div > div > textarea:focus {
