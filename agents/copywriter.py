@@ -595,22 +595,7 @@ def _save_drafts(drafts: list[dict], angle_id: int, product_id: int) -> int:
                     content_format, headline, body, cta_line, hashtags,
                     carousel_slides, reel_script, image_brief, proof_points_used,
                     word_count, char_count, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(story_angle_id, platform, variant_number) DO UPDATE SET
-                    product_id        = EXCLUDED.product_id,
-                    content_format    = EXCLUDED.content_format,
-                    headline          = EXCLUDED.headline,
-                    body              = EXCLUDED.body,
-                    cta_line          = EXCLUDED.cta_line,
-                    hashtags          = EXCLUDED.hashtags,
-                    carousel_slides   = EXCLUDED.carousel_slides,
-                    reel_script       = EXCLUDED.reel_script,
-                    image_brief       = EXCLUDED.image_brief,
-                    proof_points_used = EXCLUDED.proof_points_used,
-                    word_count        = EXCLUDED.word_count,
-                    char_count        = EXCLUDED.char_count,
-                    status            = EXCLUDED.status,
-                    updated_at        = EXCLUDED.updated_at""",
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     angle_id, product_id, d["platform"], d["variant_number"],
                     d["content_format"], d.get("headline", ""), d.get("body", ""),
