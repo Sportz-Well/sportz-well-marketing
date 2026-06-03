@@ -15,7 +15,6 @@ from __future__ import annotations
 import csv
 import json
 import re
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -485,7 +484,6 @@ def _validate_drafts(
             continue
         seen[key] = True
 
-        # Content format enforcement
         if platform == "linkedin":
             if content_format not in ("single_image", "text_post"):
                 d["content_format"] = "single_image"
@@ -495,12 +493,10 @@ def _validate_drafts(
         else:
             d["content_format"] = content_format
 
-        # CTA enforcement
         if cta_strength == "no_cta" and d.get("cta_line"):
             warnings.append(f"cta_strength is no_cta but model produced cta_line for ({platform}, v{variant}) — cleared.")
             d["cta_line"] = None
 
-        # URL sanitisation
         if d.get("cta_line"):
             original_cta = d["cta_line"]
             cleaned = re.sub(r"https?://", "", original_cta)
@@ -509,7 +505,6 @@ def _validate_drafts(
                 d["cta_line"] = cleaned
                 warnings.append(f"URL prefix stripped from cta_line for ({platform}, v{variant}).")
 
-        # carousel/reel enforcement
         if content_format != "carousel" or platform == "linkedin":
             d["carousel_slides"] = None
         elif not isinstance(d.get("carousel_slides"), list):
@@ -520,11 +515,9 @@ def _validate_drafts(
         elif not isinstance(d.get("reel_script"), dict):
             d["reel_script"] = None
 
-        # image_brief enforcement
         if platform == "linkedin" and d.get("content_format") == "text_post":
             d["image_brief"] = None
 
-        # Differentiation strategy validation
         hook_strategy     = d.get("hook_strategy")
         perspective_focus = d.get("perspective_focus")
 
@@ -561,7 +554,6 @@ def _validate_drafts(
 
         valid.append(d)
 
-    # Cross-variant differentiation checks
     for platform, declarations in strategies_by_platform.items():
         if len(declarations) < 2:
             continue
@@ -598,12 +590,27 @@ def _save_drafts(drafts: list[dict], angle_id: int, product_id: int) -> int:
     with get_connection() as conn:
         for d in drafts:
             conn.execute(
-                """INSERT OR REPLACE INTO drafts (
+                """INSERT INTO drafts (
                     story_angle_id, product_id, platform, variant_number,
                     content_format, headline, body, cta_line, hashtags,
                     carousel_slides, reel_script, image_brief, proof_points_used,
                     word_count, char_count, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(story_angle_id, platform, variant_number) DO UPDATE SET
+                    product_id        = EXCLUDED.product_id,
+                    content_format    = EXCLUDED.content_format,
+                    headline          = EXCLUDED.headline,
+                    body              = EXCLUDED.body,
+                    cta_line          = EXCLUDED.cta_line,
+                    hashtags          = EXCLUDED.hashtags,
+                    carousel_slides   = EXCLUDED.carousel_slides,
+                    reel_script       = EXCLUDED.reel_script,
+                    image_brief       = EXCLUDED.image_brief,
+                    proof_points_used = EXCLUDED.proof_points_used,
+                    word_count        = EXCLUDED.word_count,
+                    char_count        = EXCLUDED.char_count,
+                    status            = EXCLUDED.status,
+                    updated_at        = EXCLUDED.updated_at""",
                 (
                     angle_id, product_id, d["platform"], d["variant_number"],
                     d["content_format"], d.get("headline", ""), d.get("body", ""),
@@ -655,7 +662,7 @@ def _log_api_call(product_id, input_tokens, output_tokens, cost, notes=""):
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ts, "copywriter", action, input_tokens, output_tokens, 0, cost, notes),
             )
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
 
@@ -699,7 +706,7 @@ def count_draft_stats(product_id: int) -> dict[str, Any]:
             "waiting": max(0, int(total_approved) - int(drafted_angles)),
             "by_platform": by_platform, "total_drafts": sum(by_status.values()),
         }
-    except sqlite3.OperationalError:
+    except Exception:
         return {"by_status": {}, "total_approved": 0, "drafted_angles": 0, "waiting": 0, "by_platform": {}, "total_drafts": 0}
 
 
@@ -730,7 +737,7 @@ def get_drafts_library(product_id, status_filter=None, platform_filter=None, ang
                 params,
             ).fetchall()
         return [dict(r) for r in rows]
-    except sqlite3.OperationalError:
+    except Exception:
         return []
 
 
@@ -758,7 +765,7 @@ def get_approved_angles(product_id: int) -> list[dict]:
                 (product_id,),
             ).fetchall()
         return [dict(r) for r in rows]
-    except sqlite3.OperationalError:
+    except Exception:
         return []
 
 
@@ -775,5 +782,5 @@ def get_angle_draft_coverage(product_id: int) -> list[dict]:
                 (product_id,),
             ).fetchall()
         return [dict(r) for r in rows]
-    except sqlite3.OperationalError:
+    except Exception:
         return []
