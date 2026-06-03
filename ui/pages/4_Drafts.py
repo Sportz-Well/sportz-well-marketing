@@ -125,14 +125,24 @@ def _render_draft_card(draft: dict) -> None:
         if headline:
             st.markdown(f"**{headline}**")
 
-        # Body — display only
-        st.text_area(
-            "body",
-            value=body,
-            height=160,
-            disabled=True,
-            key=f"body_ro_{draft_id}",
-            label_visibility="collapsed",
+        # Body — rendered as styled div so text is always readable on dark theme.
+        # (disabled st.text_area causes Chrome to force grey text that CSS cannot override)
+        body_html = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+        st.markdown(
+            f'<div style="'
+            f'background:#0d0d1a;'
+            f'border:1px solid #2a2a4a;'
+            f'border-radius:4px;'
+            f'padding:12px 16px;'
+            f'color:#e8e8f0;'
+            f'font-family:Inter,sans-serif;'
+            f'font-size:0.9rem;'
+            f'line-height:1.7;'
+            f'white-space:pre-wrap;'
+            f'min-height:100px;'
+            f'margin-bottom:8px;'
+            f'">{body_html}</div>',
+            unsafe_allow_html=True,
         )
 
         # CTA line
@@ -282,6 +292,7 @@ with tab1:
                 "Pick a single angle",
                 options=list(angle_options.keys()),
                 format_func=lambda x: angle_options[x],
+                key="single_angle_select",
                 label_visibility="collapsed",
             )
             if st.button("Generate drafts for this angle only", use_container_width=True):
