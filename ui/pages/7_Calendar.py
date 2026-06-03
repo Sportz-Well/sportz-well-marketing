@@ -9,6 +9,7 @@ Three tabs:
 """
 
 import streamlit as st
+from services.page_utils import init_page
 from datetime import datetime, date, timedelta
 import calendar as cal_module
 
@@ -31,6 +32,7 @@ st.set_page_config(
     layout="wide",
 )
 
+init_page()
 # ─── brand context ────────────────────────────────────────────────────────────
 
 product = get_active_product()

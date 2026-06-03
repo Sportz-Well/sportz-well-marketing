@@ -4,6 +4,7 @@ import json
 from itertools import groupby
 
 import streamlit as st
+from services.page_utils import init_page
 
 from agents.copywriter import (
     count_draft_stats,
@@ -18,6 +19,7 @@ from agents.copywriter import (
 from services.brand_context import get_active_product
 
 st.set_page_config(page_title="Drafts — Sportz-Well", page_icon="✍️")
+init_page()
 st.title("✍️ Drafts")
 
 product = get_active_product()

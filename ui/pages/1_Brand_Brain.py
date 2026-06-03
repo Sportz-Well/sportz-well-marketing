@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
+from services.page_utils import init_page
 
 from db.init_db import init_db
 from services.database import get_connection
@@ -45,6 +46,7 @@ st.set_page_config(
     layout="wide",
 )
 
+init_page()
 # ─── Seed constants ───────────────────────────────────────────────────────────
 # All brand-specific content lives here, not scattered through code.
 

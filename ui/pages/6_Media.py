@@ -8,6 +8,7 @@ Media Studio page — three tabs:
 """
 
 import streamlit as st
+from services.page_utils import init_page
 
 from agents.media import (
     count_media_stats,
@@ -21,6 +22,7 @@ from services.database import get_connection
 
 # ── Page config ────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Media Studio · SWPI", layout="wide")
+init_page()
 st.title("📸 Media Studio")
 st.caption("Turn caption image briefs into shoot-ready photography creative briefs.")
 

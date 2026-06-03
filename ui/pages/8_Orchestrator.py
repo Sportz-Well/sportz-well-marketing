@@ -10,6 +10,7 @@ The user can run the full pipeline or resume from any stage.
 """
 
 import streamlit as st
+from services.page_utils import init_page
 import time
 from datetime import datetime
 
@@ -30,6 +31,7 @@ st.set_page_config(
     layout="wide",
 )
 
+init_page()
 # ─── brand context ────────────────────────────────────────────────────────────
 
 product = get_active_product()
