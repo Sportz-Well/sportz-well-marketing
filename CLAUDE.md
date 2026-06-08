@@ -1,298 +1,311 @@
 # CLAUDE.md
-
-This file is the source of truth for anyone (including future Claude sessions) working on this codebase. Read it first.
-
----
-
-## Product Vision — Three Phases
-
-**Phase 1 (COMPLETE):** Internal AI-powered social media content pipeline for SWPI (Sportz-Well Performance Intelligence). Single client, runs locally, founder operates it manually.
-
-**Phase 2 (NEXT):** Onboard SW-Travel as second client. Gen Z travel brand on Instagram. Schema already supports multi-tenancy — add rows, don't fork code. Do NOT start until SWPI has been used end-to-end in production for at least 2 weeks.
-
-**Phase 3 (FUTURE):** Package as a SaaS product for other brands. Requires Meta Graph API integration for direct posting, multi-user auth, billing. Not before Phase 2 is stable.
+### Source of truth for all Claude sessions working on this codebase.
+### Last updated: 2026-06-07
+### Read this fully before doing anything.
 
 ---
 
-## Product (Phase 1)
+## Who You Are Working With
 
-A web app that helps a brand plan, draft, and schedule social media content.
+**Jitendra Sonu Jagdale** — non-technical founder, Mumbai cricketer, MCA Match Observer,
+Shardashram alumnus. Building a billion-dollar company. Decisive, moves fast, respects
+straight talk. Does NOT want to be coddled. If an idea is weak, say so directly.
 
-- **First client:** Sportz-Well, an Indian sports performance brand.
-- **Flagship product:** SWPI (Sportz-Well Performance Intelligence App).
-- **V1 platforms:** Instagram and Facebook.
-- **V1 posting model:** The app does **not** post automatically. It generates drafts, schedules them on an internal calendar, and the user copy-pastes into Meta Business Suite.
-- **V2 (later):** Direct API posting via Meta Graph API, after Meta App Review.
-- **Multi-tenant:** V1 is single-client (Sportz-Well), but the schema already supports multiple clients — additional brands are onboarded by adding rows, not by forking code.
-
----
-
-## Stack
-
-- **Language:** Python 3.11+
-- **UI:** Streamlit (chosen because the product owner is non-technical — fastest way to ship a working UI)
-- **Database:** SQLite (file at `data/app.db`, created from `db/schema.sql`)
-- **AI:** Anthropic Python SDK, wrapped in `services/anthropic_client.py`
-- **Model:** `claude-sonnet-4-6` (set in `services/anthropic_client.py` — never hardcode elsewhere)
-- **Environment:** Windows, PowerShell, VS Code, virtual env at `.venv`
-- **Run command:** `streamlit run ui/app.py` from project root
-- **Package management:** `uv` if available, otherwise `pip` + `requirements.txt`
+**Your role in every session:** CTO co-founder, friend, and mentor.
+- Be patient. Give step-by-step instructions for every task.
+- Never sugarcoat. Test everything until bulletproof.
+- Maximize every chat — use tokens carefully, no padding.
+- Jitendra is non-technical. Never assume he knows what a command does.
 
 ---
 
-## Critical API Convention
-
-`ask_with_usage()` in `services/anthropic_client.py` takes:
-- `system_prompt` (not `system`)
-- `user_prompt` (not `user`)
-- Returns a **dict** with keys: `text`, `input_tokens`, `output_tokens`, `web_searches`, `error`
-- **Never unpack as a tuple.** This bug has been hit once — don't repeat it.
-
-`get_active_product()` in `services/brand_context.py` returns a dict with:
-- `product_id` (NOT `id`)
-- `product_name` (NOT `name`)
-- Every page and agent must use these keys. `product["id"]` will throw a KeyError.
-
----
-
-## Architecture: one app, six agents + scheduler
-
-One app, one database, one UI. Inside, seven specialized modules coordinate:
-
-1. **Researcher** — gathers signals (news, trends, athlete content, science updates) relevant to the brand.
-2. **Strategist** — turns research into story angles tied to brand positioning.
-3. **Copywriter** — drafts platform-specific posts from story angles.
-4. **Editor** — reviews drafts for voice, accuracy, and brand guardrails.
-5. **Media** — turns each draft's image_brief into a shoot-ready photography creative brief.
-6. **Scheduler** — places approved drafts on the content calendar.
-7. **Orchestrator** — runs the full pipeline (Research → Strategy → Drafts → Editor → Media) in one click.
-
-Each agent is its own module under `agents/`. They share the database (handoff is via DB rows, not in-memory state) and share the Anthropic client wrapper in `services/`.
-
----
-
-## Build conventions
-
-- **No hardcoded brand content.** Never put Sportz-Well's voice, USPs, positioning, "do not say" rules, or any brand-specific copy in Python files. Everything brand-specific lives in the `brand_profiles` table, keyed by client. Code reads the brand profile from the database at runtime.
-- **Database is the handoff layer between agents.** Researcher writes to `research_items`, Strategist reads them and writes `story_angles`, Copywriter reads angles and writes `drafts`, Media reads drafts and writes `media_briefs`, etc.
-- **Models:** Default to the latest Sonnet model ID (currently `claude-sonnet-4-6`) via the wrapper in `services/anthropic_client.py`. Don't hardcode model strings throughout the codebase.
-- **Secrets:** API keys live only in `.env` (gitignored). `.env.example` documents what's needed.
-- **`ask_with_usage()` signature:** Takes `system_prompt` and `user_prompt` as keyword args. Returns a dict with keys: `text`, `input_tokens`, `output_tokens`, `web_searches`, `error`. Never unpack as a tuple.
-
----
-
-## Repository layout
-
-```
-agents/
-  researcher.py    ✅ Prompt 3
-  strategist.py    ✅ Prompt 4
-  copywriter.py    ✅ Prompt 5
-  editor.py        ✅ Prompt 6
-  media.py         ✅ Prompt 7
-  scheduler.py     ✅ Prompt 8
-db/
-  schema.sql       ✅ canonical schema — single source of truth
-  init_db.py       ✅ creates data/app.db; auto-migrates schema
-ui/
-  app.py           ✅ Streamlit Home page
-  pages/
-    1_Brand_Brain.py     ✅ Prompt 2
-    2_Research.py        ✅ Prompt 3
-    3_Strategy.py        ✅ Prompt 4
-    4_Drafts.py          ✅ Prompt 5
-    5_Editor.py          ✅ Prompt 6
-    6_Media.py           ✅ Prompt 7
-    7_Calendar.py        ✅ Prompt 8
-    8_Orchestrator.py    ✅ Prompt 9
-services/
-  anthropic_client.py     ✅ thin Anthropic SDK wrapper
-  database.py             ✅ shared SQLite connection helper
-  brand_context.py        ✅ brand context API — all agents use this
-  url_validator.py        ✅ URL validation for researcher
-  source_preferences.py   ✅ domain allowlist/downrank for researcher
-data/                     # local SQLite DB lives here (gitignored)
-tests/
-  test_editor_parser.py   ✅ 18 smoke tests, all passing
-.env.example
-requirements.txt
-```
-
----
-
-## Brand data model (Prompt 2)
-
-Two-tier hierarchy — organisation owns products, products have phases:
-
-- `organizations` — parent company (Sportz-Well). `social_active = 0` in Phase 1.
-- `products` — the social-media-active entity (SWPI). `is_active_client = 1` for V1.
-- `product_phases` — rollout plan. Phase 1 active; Phases 2 & 3 planned.
-- `brand_profiles` — JSON blob per product. Keys: audience, voice, topics, proof points, CTA.
-- `partner_brands` — affiliated brands to mention. Empty in Phase 1 but schema is ready.
-- `content_rules` — configurable rules keyed by `rule_key`. Vision-hint quota lives here.
-
----
-
-## Brand context API
-
-`services/brand_context.py` is the **single source of truth** for all agents:
-
-| Function | Returns |
-|---|---|
-| `get_active_product()` | Product + org + active phase dict, or None |
-| `get_brand_profile(product_id)` | Parsed JSON dict (includes split proof-point lists) |
-| `get_content_rules(product_id)` | `{rule_key: rule_value}` dict |
-| `get_active_partner_brands(org_id)` | List of active partner brand dicts |
-| `build_brand_context_prompt(product_id)` | Agent-ready system prompt fragment (str) |
-
-**Every future agent MUST call `build_brand_context_prompt()` and inject it into its Claude system prompt. Never hardcode brand content in agent code.**
-
----
-
-## Current status — Phase 1 COMPLETE (2026-05-23)
-
-All 8 modules built and tested end-to-end.
-
-- ✅ Prompt 1 — Scaffold: folders, `.gitignore`, `.env.example`, `requirements.txt`, `README.md`
-- ✅ Prompt 2 — Brand Brain: two-tier schema, brand profile JSON, SWPI seeded with Phase 1 profile
-- ✅ Prompt 3 — Researcher agent + Research page (URL validation, geography mix, quality threshold, source bias)
-- ✅ Prompt 3.5 — Researcher tuning (4 fixes: URL validation, geography, quality threshold, source bias)
-- ✅ Prompt 4 — Strategist agent + Strategy page (vision-hint quota, sparing proof-point quota, CTA distribution)
-- ✅ Prompt 5 — Copywriter agent + Drafts page (2 variants per platform, robust JSON parser)
-- ✅ Prompt 5.5 — Copywriter tuning (CROSS_VARIANT_DUPLICATION eliminated: 46% → 0%)
-- ✅ Prompt 6 — Editor agent + Editor page (10 checks: 8 hard, 2 soft; 18 parser smoke tests)
-- ✅ Prompt 7 — Media agent + Media Studio page (photography creative briefs, ~$0.018/brief)
-- ✅ Prompt 8 — Scheduler agent + Calendar page (schedule/reschedule/mark posted, pipeline overview)
-- ✅ Prompt 9 — Orchestrator page (full pipeline runner + individual stage runner)
-
----
-
-## DB Tables (complete)
-
-| Table | Owner | Status |
-|-------|-------|--------|
-| organizations | Brand Brain | ✅ |
-| products | Brand Brain | ✅ |
-| product_phases | Brand Brain | ✅ |
-| brand_profiles | Brand Brain | ✅ |
-| partner_brands | Brand Brain | ✅ |
-| content_rules | Brand Brain | ✅ |
-| research_items | Researcher | ✅ |
-| api_log | All agents | ✅ |
-| story_angles | Strategist | ✅ |
-| drafts | Copywriter | ✅ |
-| editor_reviews | Editor | ✅ |
-| media_briefs | Media | ✅ |
-| schedule | Scheduler | ✅ |
-
----
-
-## Known issues / watch list
-
-- **Strategist intermittent JSON parse failure:** Occurs occasionally when research library is large (16+ items). Model returns valid JSON but parser fails on edge cases. Workaround: re-run Strategy — it succeeds on retry. Fix before Phase 2.
-- **`batch_review_remaining.py` implicit retry:** `review_draft()` returns cached review if one exists. Safe to re-run but silently re-triggers API on new drafts with prior failures. Add `force=False` guard before next batch use.
-- **Orphan editor_reviews rows:** Old drafts #1–12 deleted by regeneration but their `editor_reviews` rows remain. Harmless noise in Pipeline Overview histogram. Cleanup later.
-- **HINGLISH_UNCALLED monitor:** Draft #19 used "maidan" once without explicit brief permission. Editor caught it. 1 instance, isolated. Monitor — don't act yet.
-
----
-
-## Budget (all-time as of 2026-05-23)
-
-| Session | Cost |
-|---------|------|
-| 2026-05-18 | ~₹10 |
-| 2026-05-20 | ~$0.03 |
-| 2026-05-21 (Prompt 5.5) | ~$0.35 |
-| 2026-05-22 (Angle 10 fix + UX) | ~$0.10 |
-| 2026-05-23 (Prompt 7 — Media) | ~$0.16 |
-| 2026-05-23 (Prompt 8 — Calendar) | ~$0.00 (zero API cost) |
-| 2026-05-23 (Prompt 9 — Orchestrator) | ~$0.00 (zero API cost) |
-| 2026-05-23 (End-to-end test run) | ~$0.70 |
-| **Total all-time** | **~$2.00** |
-
----
-
-## Next steps
-
-**Immediate (this week):**
-Deploy to Streamlit Cloud (free tier). Half-day effort. See SOP document for deployment steps.
-
-**Phase 2 (after 2 weeks of SWPI production use):**
-Onboard SW-Travel as second client. Gen Z travel brand, Instagram-first. Schema supports it — add a new product row in Brand Brain. Brand voice, content rules, and proof points will be completely different from SWPI — fill them in carefully before running any agents.
-
-**Phase 3 (future):**
-SaaS packaging. Requires: Meta Graph API for direct posting, multi-user authentication, billing, proper hosting (not Streamlit Cloud). Not before Phase 2 is stable.
-
----
-
-## Copywriter agent internals (`agents/copywriter.py`)
-
-### System prompt structure
-
-1. **Brand context block** — injected via `build_brand_context_prompt(product_id)`.
-2. **Platform rules block** — per-platform word limits, hashtag counts, format constraints.
-3. **Variant differentiation rules** — hook_strategy + perspective_focus enforcement.
-4. **JSON format rules** — double-quote ban, single-quote alternatives.
-
-### Variant differentiation (Prompt 5.5)
-
-Five hook strategies: `question_hook | scenario_hook | statement_hook | story_hook | framework_hook`
-Four perspective focuses: `coach_pov | parent_pov | player_pov | academy_pov`
-
-Sibling variants on same platform MUST declare different values for BOTH fields. Validated in Python, dropped before DB insert.
-
-### Robust JSON parser (4 strategies)
-
-1. Direct `json.loads()`
-2. Strip markdown fences → `json.loads()`
-3. Remove trailing commas → `json.loads()`
-4. `re.finditer(r'\{[\s\r\n]*"drafts"')` + `JSONDecoder.raw_decode()` — handles self-correction pattern
-
----
-
-## Media agent internals (`agents/media.py`)
-
-### Public API
-
-| Function | Does |
-|---|---|
-| `generate_media_brief(draft_id, force=False)` | Generate 1 brief; cached if exists and force=False |
-| `generate_all_pending(product_id, force=False)` | Run on all drafts without a brief |
-| `get_media_library(product_id, status_filter, platform_filter)` | Returns briefs joined with draft + angle info |
-| `get_brief_for_draft(draft_id)` | Returns the brief dict for a draft, or None |
-| `update_brief_status(brief_id, status)` | Set pending / approved / rejected |
-| `count_media_stats(product_id)` | Coverage and status counts |
-| `get_last_run_info()` | Metadata from last generate call |
-
-Empirical cost: ~$0.018 per brief. `props`, `color_palette`, `do_not` stored as JSON arrays (TEXT column).
-
----
-
-## Scheduler agent internals (`agents/scheduler.py`)
-
-### Public API
-
-| Function | Does |
-|---|---|
-| `schedule_draft(draft_id, scheduled_for)` | Schedule an approved draft |
-| `unschedule(schedule_id)` | Remove from schedule |
-| `reschedule(schedule_id, new_datetime)` | Change scheduled time |
-| `mark_as_posted(schedule_id)` | Set posted_at to now |
-| `get_scheduled_drafts(start_date, end_date)` | Calendar view for date range |
-| `get_pipeline_summary(product_id)` | Approved: scheduled vs unscheduled counts |
-| `get_approved_unscheduled_drafts(product_id)` | Drafts ready to schedule |
-
-Zero API cost — pure DB logic.
-
----
-
-## Working rules for future Claude sessions
+## Working Rules (non-negotiable, every session)
 
 1. **Plan-and-paste mode:** Claude plans, Jitendra runs commands in PowerShell on Windows.
-2. **Any changes to existing files:** Recode the WHOLE file as a downloadable artifact. Never copy-paste code inline in chat.
+2. **Any changes to existing files:** Recode the WHOLE file as a downloadable artifact.
+   Never copy-paste code inline in chat.
 3. **New files:** Label clearly "NEW FILE", deliver whole file as artifact.
 4. **One task at a time.** No scope creep.
-5. **Two files at a time maximum.**
+5. **Two files at a time maximum** (only break for tightly coupled files).
 6. **Always ask for the real current file** before editing. Never reconstruct from memory.
 7. **Commit message required** after every file save.
-8. **End of every session:** Give 2 options for next steps and recommend which one and why.
+8. **End of every session:** Give 2 options for next steps, recommend one with reason.
+9. **Always state full file path** when delivering a file.
+   Format: C:\Users\Dell\sportz-well-marketing\path\to\file.py
+10. **No PDF files** — only .md files for documents.
+11. **Windows-specific awareness:** Windows-compatible code and PowerShell commands only.
+12. **Safety-first on data writes:** Show full contents before any data-writing run.
+13. **SQL discipline:** Parameterized queries (? placeholders) always. Never string concatenation.
+
+---
+
+## The Product
+
+**Name:** Sportz-Well Marketing Studio
+**Live URL:** https://swpi-marketing.streamlit.app
+**GitHub:** https://github.com/Sportz-Well/sportz-well-marketing (public)
+**Local run:** .venv\Scripts\activate then streamlit run ui/app.py
+**Project root:** C:\Users\Dell\sportz-well-marketing
+
+An AI-powered social media content pipeline for SWPI — a grassroots cricket player
+development product targeting academy directors, coaches, and parents of U10-U17
+players in India.
+
+**Posting model:** App does NOT post automatically. Generates drafts, user
+copy-pastes into Meta Business Suite (FB/IG) and LinkedIn directly.
+
+---
+
+## Tech Stack
+
+- Language: Python 3.11+
+- UI: Streamlit
+- Database: PostgreSQL on Supabase (kkepmacwjfuoczbbfroi — Seoul)
+- AI: Anthropic SDK, model claude-sonnet-4-6 (set in anthropic_client.py only)
+- Environment: Windows, PowerShell, VS Code, .venv
+- Deployed: Streamlit Community Cloud (free tier, auto-deploys on push to master)
+- API key: Streamlit Cloud Secrets → ANTHROPIC_API_KEY
+- DATABASE_URL: Streamlit Cloud Secrets → DATABASE_URL
+
+---
+
+## Critical API Conventions
+
+ask_with_usage() takes system_prompt and user_prompt (not system/user).
+Returns dict: text, input_tokens, output_tokens, web_searches, error.
+NEVER unpack as a tuple.
+
+get_active_product() returns product_id (NOT id) and product_name (NOT name).
+
+PostgreSQL SQL rules (all agents must follow):
+- NEVER INSERT OR REPLACE INTO → plain INSERT INTO
+- NEVER datetime('now') → datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+- NEVER sqlite3.OperationalError → Exception
+- ? placeholders auto-convert to %s in services/database.py
+
+---
+
+## Three-Phase Vision
+
+Phase 1 (COMPLETE — production started 2026-06-05):
+Internal SWPI tool. Single client. First LinkedIn post live. 71 impressions day 1.
+
+Phase 2 (earliest start: 2026-06-19 — after 2 weeks production use):
+- Onboard SW-Travel (Gen Z travel brand, Instagram-first)
+- Potentially onboard Saviour Rescuevator (LinkedIn-only, fire evacuation lifts)
+- Blogs + Newsletter module
+- Prompt caching (40-60% cost saving)
+
+Phase 3 (future):
+Meta Graph API direct posting, X/Twitter, multi-user auth + billing, SaaS packaging.
+
+---
+
+## Architecture
+
+One app, one PostgreSQL DB (Supabase), one UI. Seven modules coordinate via DB:
+
+  Researcher   → research_items table
+  Strategist   → story_angles table
+  Copywriter   → drafts table
+  Editor       → editor_reviews table
+  Media        → media_briefs table (BEING REWORKED)
+  Scheduler    → schedule table
+  Orchestrator → calls all agents, no own table
+
+---
+
+## Repository Layout (current state 2026-06-07)
+
+agents/
+  researcher.py       PostgreSQL compatible
+  strategist.py       PostgreSQL compatible
+  copywriter.py       PostgreSQL compatible
+  editor.py           NOT tested on PostgreSQL yet
+  media.py            BEING REWORKED (photography briefs → AI image prompts)
+  scheduler.py        NOT tested on PostgreSQL yet
+db/
+  schema.sql          PostgreSQL syntax
+  init_db.py          PostgreSQL
+ui/
+  app.py              dark theme home page
+  pages/
+    1_Brand_Brain.py  PostgreSQL + dark theme
+    2_Research.py     dark theme
+    3_Strategy.py     dark theme (subtitle still says Instagram & Facebook — fix pending)
+    4_Drafts.py       readable draft body (styled div replaces disabled textarea)
+    5_Editor.py       dark theme
+    6_Media.py        BEING REWORKED
+    7_Calendar.py     dark theme
+    8_Orchestrator.py dark theme
+services/
+  anthropic_client.py
+  database.py         PostgreSQL psycopg2 wrapper
+  brand_context.py
+  url_validator.py
+  source_preferences.py
+  page_utils.py       dark theme CSS + cached init_db
+tests/
+  test_editor_parser.py   18 tests passing
+
+---
+
+## Platform Word Count Table
+
+Platform    | Format       | Min | Max
+Instagram   | single_image | 80  | 130
+Instagram   | carousel     | 80  | 130
+Instagram   | reel_script  | 50  | 100
+Facebook    | single_image | 60  | 120
+Facebook    | text_post    | 60  | 150
+Facebook    | carousel     | 60  | 120
+LinkedIn    | single_image | 150 | 300
+LinkedIn    | text_post    | 100 | 250
+
+---
+
+## Media Studio — Rework (NEXT TASK)
+
+OLD (useless): 500-word photography essays. Nobody reads them.
+NEW (useful): AI image prompt generator for Midjourney / Adobe Firefly / Runway.
+
+Three prompt formats per draft, one copy button each:
+
+Midjourney: short technical prompt with aspect ratio and style flags
+  e.g. Cricket coach at boundary, clipboard in hand, watching U-14 batter, golden hour,
+  outdoor Mumbai cricket ground, photorealistic, Canon 85mm --ar 4:5 --style raw
+
+Adobe Firefly: natural language optimised for Firefly
+  e.g. Professional photo, cricket coach observing young batter at practice nets,
+  golden hour, documentary style, outdoor cricket academy Mumbai
+
+Runway (video): short motion description
+  e.g. Coach walks along boundary, pauses to observe U-14 batter at nets,
+  slow camera pan, golden hour, 5 seconds
+
+Files to rework: agents/media.py + ui/pages/6_Media.py
+Both files were pasted in the previous chat session and are in HANDOVER_2026_06_07.md
+
+---
+
+## Current Production Status (2026-06-07)
+
+First Post Live — LinkedIn 5 Jun 2026
+Post: "A coach spends 90 minutes with a U-14 batter..." (V2, Are Parents informed)
+Analytics day 1: 71 impressions, 45 reached, 0 likes, 0 comments
+Assessment: Expected cold-start. Right audience (36% senior). Mahindra Finance profile visit.
+Fix for next post: message 3-4 connections before posting, ask for first-hour comment.
+
+LinkedIn Posting Schedule:
+- Fri 5 Jun  — "A coach spends 90 minutes..." V2         LIVE
+- Mon 8 Jun  — "36% of parents..." V1                    Scheduled
+- Thu 11 Jun — "Three stages arc..." V1                  Scheduled
+- Week 15 Jun — "Coach with 20 years..." V1              To schedule
+- Week 15 Jun — "Your academy runs 40 players..." V2     To schedule
+- Week 22 Jun — "A parent stops responding..." V2        To schedule
+
+Other approved drafts pending scheduling:
+- Facebook: Cricket Isn't a Hobby V1+V2, Rs5000 a Month V1+V2
+- Instagram: U14 Pathway V1+V2 (clean), Cricket Isn't a Hobby V1+V2 (still flagged)
+
+LinkedIn Posting Strategy:
+- Post body: NO SWPI mention — thought leadership only
+- First comment immediately after: soft SWPI mention + sportz-well.com link
+- Message 3-4 connections personally before posting
+- Text-only posts — no image needed
+- NEVER mention the gap between posts
+
+---
+
+## Features Backlog (priority order)
+
+IMMEDIATE — next session:
+1. Media Studio rework — photography briefs → AI image prompts. ~2 hours.
+   Both current files ready in handover.
+
+HIGH — this week:
+2. Test editor.py and scheduler.py on PostgreSQL (fix as errors appear)
+3. INR display — add USD_TO_INR = 95.42 to page_utils.py, update all cost displays
+4. Strategist subtitle — 3_Strategy.py still says Instagram & Facebook. Add LinkedIn.
+5. BCCI scoring fix — Researcher scores BCCI/IPL content too high. Cap at 4/10.
+6. Fix Instagram drafts #7 and #8 — still flagged.
+
+MEDIUM — before Phase 2:
+7. Platform distribution control in Strategist (3 LinkedIn, 3 Instagram, 2 Facebook)
+8. Copy Full Post button in Drafts Library (one-click for WhatsApp sharing)
+9. WhatsApp reminder 30 mins before scheduled post (Twilio)
+
+NEW FEATURES — Phase 2:
+10. AI Image Generation (call Midjourney/Firefly API directly from app)
+11. Performance Loop (log post metrics, feed back to Strategist — THE PRODUCT MOAT)
+12. One-Click Repurpose (LinkedIn → Instagram + Facebook in one click)
+13. Brand Voice Trainer (paste 5 own posts → extract voice → feed to Copywriter)
+
+---
+
+## External Client Pipeline
+
+Saviour Rescuevator (inquiry received 2026-06-05):
+- Fire evacuation lifts for high-rise buildings
+- Website: saviourrescuevator.com
+- LinkedIn only
+- Buyer: architects, developers, safety consultants, facility managers
+- Do NOT onboard before 2026-06-19 (two-week production rule)
+- Proposed: LinkedIn Starter Rs18,000/month + Rs8,000 setup = Rs26,000 first invoice
+
+Pricing Structure:
+Package               | Platforms    | Posts/month | Price
+Starter LinkedIn      | LinkedIn     | 12          | Rs18,000/month
+Starter Instagram     | Instagram    | 12          | Rs15,000/month
+Starter Facebook      | Facebook     | 8           | Rs12,000/month
+Growth LinkedIn+IG    | 2 platforms  | 20          | Rs28,000/month
+Growth LinkedIn+FB    | 2 platforms  | 18          | Rs25,000/month
+Growth IG+FB          | 2 platforms  | 18          | Rs20,000/month
+Full Suite            | All 3        | 28          | Rs38,000/month
+Setup fee (all)       | One-time     |             | Rs8,000
+
+Minimum: 3 months. Advance monthly. 30-day exit after month 3.
+
+---
+
+## Budget (all-time as of 2026-06-07)
+
+Session                                    | USD    | INR
+2026-05-18 to 2026-05-23 (full build)     | $1.54  | Rs147
+2026-05-31 (LinkedIn feature)             | $0.50  | Rs48
+2026-06-03 (PostgreSQL + dark theme)      | $2.63  | Rs251
+2026-06-03 (First production run)         | $1.64  | Rs156
+2026-06-05 (Fixes + scheduling + post 1) | $0.20  | Rs19
+TOTAL ALL-TIME                            | $6.51  | Rs621
+
+Weekly running cost: ~Rs200/week (~Rs800/month)
+Cost per published post: ~Rs27
+
+---
+
+## DB Tables
+
+Table           | Owner
+organizations   | Brand Brain
+products        | Brand Brain
+product_phases  | Brand Brain
+brand_profiles  | Brand Brain
+partner_brands  | Brand Brain
+content_rules   | Brand Brain
+research_items  | Researcher
+api_log         | All agents
+story_angles    | Strategist
+drafts          | Copywriter
+editor_reviews  | Editor
+media_briefs    | Media
+schedule        | Scheduler
+
+---
+
+## Known Issues
+
+- editor.py and scheduler.py: NOT tested on PostgreSQL. Fix as errors appear.
+- Strategist intermittent JSON parse failure: re-run always fixes it.
+- Instagram drafts #7 and #8: flagged, not fixed yet.
+- Strategy page subtitle: still says Instagram & Facebook. Fix pending.
+- Orphan editor_reviews rows: harmless, cleanup later.
