@@ -4,6 +4,9 @@ Reads an approved story angle from story_angles, calls the Anthropic API
 (pure reasoning, no web search), and saves 2 platform-appropriate draft
 variants per target platform to the drafts table.
 
+Each draft also generates a visual_photography_note — a 1-3 sentence AI
+image directive saved to the drafts table and used by the Media agent.
+
 Public API
 ----------
 write_drafts_for_angle(angle_id, regenerate=False) -> dict
@@ -215,7 +218,7 @@ Given a single approved story angle and its editorial brief, you produce 2 disti
 
 ## CRITICAL — Punctuation rules inside JSON string fields
 
-Inside body, headline, cta_line, image_brief, and any other string field, you MUST NOT use double-quote characters (") for any reason.
+Inside body, headline, cta_line, image_brief, visual_photography_note, and any other string field, you MUST NOT use double-quote characters (") for any reason.
 
 - For dialogue: use single quotes. CORRECT: He said, 'doing well.' WRONG: He said, "doing well."
 - For emphasis: rephrase or use em-dash. CORRECT: what amounts to a holding message. WRONG: a "holding message".
@@ -270,6 +273,32 @@ X is on the product roadmap. It is NOT yet supported. Do not produce X/Twitter d
 ### Blog and Newsletter — FUTURE INTEGRATION
 Blogs and newsletters are on the roadmap but do not yet exist. Do NOT include any blog URL or newsletter link. Once live, they will be referenced via the brand context CTA block. For now: do not reference blog or newsletter in any post.
 
+## Visual Photography Note — REQUIRED (except LinkedIn text_post)
+
+For every draft, produce a visual_photography_note alongside the image_brief.
+
+This is NOT the same as image_brief. image_brief is general visual context for a human photographer.
+visual_photography_note is a precise directive for an AI image generator (Firefly, DALL-E 3, Gemini)
+that can be pasted directly into the tool and produce a usable image.
+
+Rules:
+- 1-3 sentences maximum — tight and specific
+- Include: subject + action, setting, lighting and mood, one clear AVOID
+- Must match the emotional hook of THIS specific post — not a generic brand image
+- Authentic settings: maidans, practice nets, academy grounds, school grounds, club grounds
+- Documentary and editorial — no posed shots, no stock-photo energy
+- No clearly identifiable faces. No logos. No text in the image.
+- Set to null for LinkedIn text_post only — required for ALL other formats
+
+Good example (coach-parent disconnect post):
+'A U-14 batter at outdoor practice nets with coach crouching beside him correcting
+grip, parent figure watching from beyond the boundary rope in soft background blur,
+warm late afternoon light, documentary and unposed. Avoid anything celebratory or
+staged.'
+
+Bad example (too generic, not tied to this post):
+'A cricket player training at an academy.' — useless. Be specific to the hook.
+
 ## CTA Rules — cta_strength is "{cta_strength}". Match it exactly.
 
 - **no_cta**: cta_line MUST be null. No product pitch, no implicit invitation. Post earns trust on its own.
@@ -321,6 +350,7 @@ Return ONLY the JSON object below. No markdown fences. No prose before or after.
       "carousel_slides": [{{"slide_number": 1, "slide_title": "...", "slide_body": "max 20 words"}}],
       "reel_script": {{"hook_seconds_0_3": "...", "beats": ["beat 1"], "voiceover": "...", "on_screen_text": ["text 1"]}},
       "image_brief": "1-2 sentences for the Media agent, or null for LinkedIn text_post",
+      "visual_photography_note": "1-3 sentence AI image directive — subject, action, setting, mood, one avoid. Specific to this post's hook. Null only for LinkedIn text_post.",
       "proof_points_used": ["exact proof point strings used"],
       "word_count": <integer>,
       "char_count": <integer>
@@ -333,6 +363,7 @@ IMPORTANT:
 - carousel_slides: null when not carousel
 - reel_script: null when not reel_script
 - LinkedIn: carousel_slides and reel_script MUST always be null
+- visual_photography_note: null for LinkedIn text_post only. REQUIRED for all other formats.
 - Total drafts must equal exactly {total_drafts} ({2} variants × {len(platforms)} platform(s): {", ".join(platforms)})
 - hook_strategy and perspective_focus are REQUIRED on every draft
 - NO double-quote characters inside any string value"""
@@ -388,6 +419,8 @@ def _build_user_prompt(angle: dict, platforms: list[str]) -> str:
 Produce exactly {total_drafts} drafts ({2} variants per platform). Each platform has a DIFFERENT audience — write accordingly. Do not write the same message reformatted. Write genuinely different content for each audience.
 
 For every draft declare hook_strategy and perspective_focus. Sibling variants on the same platform MUST use different values for BOTH.
+
+For every draft (except LinkedIn text_post) write a visual_photography_note: 1-3 sentences specific to this post's hook, ready to paste into an AI image tool.
 
 NO double-quote characters inside any string field."""
 
@@ -515,8 +548,16 @@ def _validate_drafts(
         elif not isinstance(d.get("reel_script"), dict):
             d["reel_script"] = None
 
+        # Null image_brief and visual_photography_note for LinkedIn text_post
         if platform == "linkedin" and d.get("content_format") == "text_post":
             d["image_brief"] = None
+            d["visual_photography_note"] = None
+
+        # Normalise visual_photography_note for all other drafts
+        vn = d.get("visual_photography_note")
+        if d.get("visual_photography_note") is not None:
+            if not isinstance(vn, str) or not vn.strip():
+                d["visual_photography_note"] = None
 
         hook_strategy     = d.get("hook_strategy")
         perspective_focus = d.get("perspective_focus")
@@ -546,6 +587,8 @@ def _validate_drafts(
             d["headline"] = ""
         if d.get("image_brief") is None and platform != "linkedin":
             d["image_brief"] = ""
+        if "visual_photography_note" not in d:
+            d["visual_photography_note"] = None
 
         d["platform"]       = platform
         d["variant_number"] = variant
@@ -594,8 +637,9 @@ def _save_drafts(drafts: list[dict], angle_id: int, product_id: int) -> int:
                     story_angle_id, product_id, platform, variant_number,
                     content_format, headline, body, cta_line, hashtags,
                     carousel_slides, reel_script, image_brief, proof_points_used,
-                    word_count, char_count, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    word_count, char_count, visual_photography_note,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     angle_id, product_id, d["platform"], d["variant_number"],
                     d["content_format"], d.get("headline", ""), d.get("body", ""),
@@ -606,6 +650,7 @@ def _save_drafts(drafts: list[dict], angle_id: int, product_id: int) -> int:
                     d.get("image_brief"),
                     json.dumps(d.get("proof_points_used", [])),
                     d.get("word_count", 0), d.get("char_count", 0),
+                    d.get("visual_photography_note"),
                     "draft", now, now,
                 ),
             )
