@@ -886,3 +886,62 @@ def get_angle_draft_coverage(product_id: int) -> list[dict]:
         return [dict(r) for r in rows]
     except Exception:
         return []
+
+def delete_draft_permanently(draft_id: int) -> None:
+    """Hard-delete a draft and all linked rows (schedule entries, editor reviews, media briefs)."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM schedule       WHERE draft_id = ?", (draft_id,))
+        conn.execute("DELETE FROM editor_reviews WHERE draft_id = ?", (draft_id,))
+        conn.execute("DELETE FROM media_briefs   WHERE draft_id = ?", (draft_id,))
+        conn.execute("DELETE FROM drafts         WHERE id       = ?", (draft_id,))
+
+
+def get_editor_review_status(product_id: int) -> dict[int, str]:
+    """Return {draft_id: overall_status} for all editor-reviewed drafts of this product."""
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                """SELECT er.draft_id, er.overall_status
+                   FROM editor_reviews er
+                   JOIN drafts d ON d.id = er.draft_id
+                   WHERE d.product_id = ?
+                   ORDER BY er.id DESC""",
+                (product_id,),
+            ).fetchall()
+        result = {}
+        for row in rows:
+            if row["draft_id"] not in result:
+                result[row["draft_id"]] = row["overall_status"]
+        return result
+    except Exception:
+        return {}
+
+
+def delete_draft_permanently(draft_id: int) -> None:
+    """Hard-delete a draft and all linked rows (schedule entries, editor reviews, media briefs)."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM schedule       WHERE draft_id = ?", (draft_id,))
+        conn.execute("DELETE FROM editor_reviews WHERE draft_id = ?", (draft_id,))
+        conn.execute("DELETE FROM media_briefs   WHERE draft_id = ?", (draft_id,))
+        conn.execute("DELETE FROM drafts         WHERE id       = ?", (draft_id,))
+
+
+def get_editor_review_status(product_id: int) -> dict[int, str]:
+    """Return {draft_id: overall_status} for all editor-reviewed drafts of this product."""
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                """SELECT er.draft_id, er.overall_status
+                   FROM editor_reviews er
+                   JOIN drafts d ON d.id = er.draft_id
+                   WHERE d.product_id = ?
+                   ORDER BY er.id DESC""",
+                (product_id,),
+            ).fetchall()
+        result = {}
+        for row in rows:
+            if row["draft_id"] not in result:
+                result[row["draft_id"]] = row["overall_status"]
+        return result
+    except Exception:
+        return {}
