@@ -11,6 +11,8 @@ Public API
 ----------
 write_drafts_for_angle(angle_id, regenerate=False) -> dict
 write_drafts_for_all_approved(product_id) -> dict
+delete_draft_permanently(draft_id) -> None
+get_editor_review_status(product_id) -> dict[int, str]
 """
 
 from __future__ import annotations
@@ -740,7 +742,18 @@ def count_draft_stats(product_id: int) -> dict[str, Any]:
         return {"by_status": {}, "total_approved": 0, "drafted_angles": 0, "waiting": 0, "by_platform": {}, "total_drafts": 0}
 
 
-def get_drafts_library(product_id, status_filter=None, platform_filter=None, angle_id_filter=None):
+def get_drafts_library(
+    product_id: int,
+    status_filter: str | None = None,
+    platform_filter: str | None = None,
+    angle_id_filter: int | None = None,
+) -> list[dict]:
+    """Return drafts enriched with schedule state.
+
+    Added columns vs raw drafts table:
+    - is_posted   (0|1): draft has a schedule entry with posted_at IS NOT NULL
+    - is_scheduled (0|1): draft has a schedule entry with posted_at IS NULL (pending)
+    """
     clauses: list[str] = ["d.product_id = ?"]
     params: list[Any]  = [product_id]
 
@@ -758,8 +771,18 @@ def get_drafts_library(product_id, status_filter=None, platform_filter=None, ang
     try:
         with get_connection() as conn:
             rows = conn.execute(
-                f"""SELECT d.*, COALESCE(sa.angle_title, sa.title, 'Untitled') AS angle_title,
-                           sa.cta_strength AS angle_cta_strength, sa.platform_fit
+                f"""SELECT d.*,
+                           COALESCE(sa.angle_title, sa.title, 'Untitled') AS angle_title,
+                           sa.cta_strength AS angle_cta_strength,
+                           sa.platform_fit,
+                           CASE WHEN EXISTS (
+                               SELECT 1 FROM schedule s
+                               WHERE s.draft_id = d.id AND s.posted_at IS NOT NULL
+                           ) THEN 1 ELSE 0 END AS is_posted,
+                           CASE WHEN EXISTS (
+                               SELECT 1 FROM schedule s
+                               WHERE s.draft_id = d.id AND s.posted_at IS NULL
+                           ) THEN 1 ELSE 0 END AS is_scheduled
                     FROM drafts d
                     LEFT JOIN story_angles sa ON sa.id = d.story_angle_id
                     WHERE {where}
@@ -771,17 +794,60 @@ def get_drafts_library(product_id, status_filter=None, platform_filter=None, ang
         return []
 
 
+def delete_draft_permanently(draft_id: int) -> None:
+    """Hard-delete a draft and all linked rows (schedule entries, editor reviews, media briefs).
+
+    Safe to call on drafts that have no linked rows — the DELETEs are no-ops.
+    """
+    with get_connection() as conn:
+        conn.execute("DELETE FROM schedule       WHERE draft_id = ?", (draft_id,))
+        conn.execute("DELETE FROM editor_reviews WHERE draft_id = ?", (draft_id,))
+        conn.execute("DELETE FROM media_briefs   WHERE draft_id = ?", (draft_id,))
+        conn.execute("DELETE FROM drafts         WHERE id       = ?", (draft_id,))
+
+
+def get_editor_review_status(product_id: int) -> dict[int, str]:
+    """Return {draft_id: overall_status} for all editor-reviewed drafts of this product.
+
+    Only the most recent review per draft is kept (rows ordered DESC by id).
+    Returns empty dict on any DB error — callers treat missing keys as 'not reviewed'.
+    """
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                """SELECT er.draft_id, er.overall_status
+                   FROM editor_reviews er
+                   JOIN drafts d ON d.id = er.draft_id
+                   WHERE d.product_id = ?
+                   ORDER BY er.id DESC""",
+                (product_id,),
+            ).fetchall()
+        result: dict[int, str] = {}
+        for row in rows:
+            if row["draft_id"] not in result:
+                result[row["draft_id"]] = row["overall_status"]
+        return result
+    except Exception:
+        return {}
+
+
 def update_draft_status(draft_id: int, new_status: str) -> None:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with get_connection() as conn:
-        conn.execute("UPDATE drafts SET status = ?, updated_at = ? WHERE id = ?", (new_status, now, draft_id))
+        conn.execute(
+            "UPDATE drafts SET status = ?, updated_at = ? WHERE id = ?",
+            (new_status, now, draft_id),
+        )
 
 
-def update_draft_content(draft_id, headline, body, cta_line):
+def update_draft_content(draft_id: int, headline: str, body: str, cta_line: str | None) -> None:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with get_connection() as conn:
         conn.execute(
-            """UPDATE drafts SET headline=?, body=?, cta_line=?, word_count=?, char_count=?, status='edited', updated_at=? WHERE id=?""",
+            """UPDATE drafts
+               SET headline=?, body=?, cta_line=?, word_count=?, char_count=?,
+                   status='edited', updated_at=?
+               WHERE id=?""",
             (headline, body, cta_line or None, len(body.split()), len(body), now, draft_id),
         )
 
@@ -790,8 +856,11 @@ def get_approved_angles(product_id: int) -> list[dict]:
     try:
         with get_connection() as conn:
             rows = conn.execute(
-                """SELECT id, COALESCE(angle_title, title, 'Untitled') AS angle_title, platform_fit, status
-                   FROM story_angles WHERE product_id = ? AND status IN ('approved', 'edited') ORDER BY id""",
+                """SELECT id, COALESCE(angle_title, title, 'Untitled') AS angle_title,
+                          platform_fit, status
+                   FROM story_angles
+                   WHERE product_id = ? AND status IN ('approved', 'edited')
+                   ORDER BY id""",
                 (product_id,),
             ).fetchall()
         return [dict(r) for r in rows]
@@ -803,12 +872,15 @@ def get_angle_draft_coverage(product_id: int) -> list[dict]:
     try:
         with get_connection() as conn:
             rows = conn.execute(
-                """SELECT sa.id, COALESCE(sa.angle_title, sa.title, 'Untitled') AS angle_title,
-                          sa.platform_fit, COUNT(d.id) AS draft_count
+                """SELECT sa.id,
+                          COALESCE(sa.angle_title, sa.title, 'Untitled') AS angle_title,
+                          sa.platform_fit,
+                          COUNT(d.id) AS draft_count
                    FROM story_angles sa
                    LEFT JOIN drafts d ON d.story_angle_id = sa.id
                    WHERE sa.product_id = ? AND sa.status IN ('approved', 'edited')
-                   GROUP BY sa.id ORDER BY sa.id""",
+                   GROUP BY sa.id
+                   ORDER BY sa.id""",
                 (product_id,),
             ).fetchall()
         return [dict(r) for r in rows]
