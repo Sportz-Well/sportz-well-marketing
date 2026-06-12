@@ -2,9 +2,9 @@
 ui/pages/6_Media.py
 ────────────────────
 Media Studio — three tabs:
-  Tab 1 – Generate   : Add visual notes and run the Media agent.
+  Tab 1 – Generate   : Add visual notes and run the Media agent (zero cost).
   Tab 2 – Library    : Copy Firefly / ChatGPT / Gemini prompts, approve / reject.
-  Tab 3 – Pipeline   : Coverage overview and spend summary.
+  Tab 3 – Pipeline   : Coverage overview.
 """
 
 import streamlit as st
@@ -28,7 +28,7 @@ init_page()
 st.title("📸 Media Studio")
 st.caption(
     "Generate AI image prompts for Adobe Firefly, ChatGPT (DALL-E 3), and Google Gemini. "
-    "Add a Visual Photography Note to any draft for specific creative direction."
+    "Prompts are built from each draft's Visual Photography Note — no API cost."
 )
 
 # ── Active product guard ───────────────────────────────────────────────────
@@ -52,9 +52,9 @@ tab_gen, tab_lib, tab_pipe = st.tabs(
 with tab_gen:
     st.subheader("Generate AI Image Prompts")
 
-    st.info(
-        "💡 **Cost:** ~₹0.25–₹0.50 per brief (three prompts per draft, no web search).  \n"
-        "Each prompt has a built-in copy button in the Library tab."
+    st.success(
+        "✅ **Zero cost** — prompts are built from each draft's Visual Photography Note "
+        "using a template. No API call. Instant generation."
     )
 
     stats = count_media_stats(product_id)
@@ -95,11 +95,11 @@ with tab_gen:
 
             if result["failed"] == 0:
                 st.success(
-                    f"✅ Done!  "
+                    f"✅ Done! "
                     f"Generated: **{result['generated']}** · "
                     f"Skipped (no source): **{result['skipped_no_source']}** · "
                     f"Cached: **{result['cached']}** · "
-                    f"Cost: **${result['total_cost_usd']:.4f}**"
+                    f"Cost: **₹0**"
                 )
             else:
                 st.warning(
@@ -119,8 +119,8 @@ with tab_gen:
     st.markdown("#### Add Visual Note & Generate for One Draft")
     st.caption(
         "A Visual Photography Note gives the AI specific creative direction for this exact post.  \n"
-        "It overrides the copywriter's image brief. Optional — but the more specific you are, "
-        "the better the prompts."
+        "New drafts get this automatically from the Copywriter. "
+        "You can edit or override it here before generating."
     )
 
     conn = get_connection()
@@ -145,7 +145,6 @@ with tab_gen:
     if not rows:
         st.info("No drafts found. Run the Copywriter first.")
     else:
-        # Build selector with status indicators
         draft_options: dict[str, int] = {}
         for r in rows:
             has_brief = bool(r[7])
@@ -167,7 +166,6 @@ with tab_gen:
         selected_label = st.selectbox("Select draft", list(draft_options.keys()))
         selected_id    = draft_options[selected_label]
 
-        # Pull context for selected draft
         image_brief_text = ""
         current_note     = ""
         for r in rows:
@@ -176,7 +174,6 @@ with tab_gen:
                 current_note     = r[5] or ""
                 break
 
-        # Copywriter image brief (read-only reference)
         if image_brief_text:
             st.markdown(
                 f"<div style='background:#1a1a2e;padding:10px 14px;"
@@ -191,7 +188,6 @@ with tab_gen:
                 "Add a Visual Photography Note below to enable generation."
             )
 
-        # Visual photography note editor
         note_input = st.text_area(
             "Visual Photography Note",
             value=current_note,
@@ -200,9 +196,9 @@ with tab_gen:
             key=f"note_{selected_id}",
             placeholder=(
                 "Describe exactly what you want in the image. "
-                "Example: U-14 batter at nets, coach crouching beside him pointing "
-                "at bat grip, late afternoon light, no spectators, earthy tones. "
-                "Avoid anything that looks posed or performative."
+                "Example: A U-14 batter mid-practice at nets, coach crouching beside "
+                "him pointing at bat grip, afternoon light, no spectators in frame, "
+                "earthy tones. Avoid anything that looks posed or performative."
             ),
         )
         st.caption(f"{len(note_input)}/600 characters")
@@ -232,13 +228,10 @@ with tab_gen:
                 disabled=not can_gen,
                 key=f"gen_single_{selected_id}",
             ):
-                # Auto-save note if it changed before generating
                 if note_input.strip() != current_note:
                     save_visual_note(selected_id, note_input)
-
-                with st.spinner("Generating AI image prompts…"):
+                with st.spinner("Building prompts…"):
                     res = generate_media_brief(selected_id, force=force_single)
-
                 if res["ok"]:
                     if res.get("cached"):
                         st.info(
@@ -246,17 +239,10 @@ with tab_gen:
                             "Tick Force regenerate to redo."
                         )
                     else:
-                        st.success(
-                            f"✅ Prompts generated!  "
-                            f"Tokens: {res['input_tokens']}in / {res['output_tokens']}out  "
-                            f"|  Cost: ${res['cost_usd']:.5f}"
-                        )
+                        st.success("✅ Prompts generated instantly — zero cost.")
                     st.rerun()
                 else:
                     st.error(f"❌ {res.get('error', 'Unknown error')}")
-                    if res.get("raw_response"):
-                        with st.expander("Raw model response"):
-                            st.text(res["raw_response"][:2000])
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -316,14 +302,12 @@ with tab_lib:
 
             with st.expander(card_title, expanded=(b["status"] == "pending")):
 
-                # Visual photography note banner
                 if b.get("visual_photography_note"):
                     st.info(
                         f"📝 **Visual Photography Note used:** "
                         f"{b['visual_photography_note']}"
                     )
 
-                # Copywriter image brief (reference)
                 if b.get("image_brief"):
                     st.markdown(
                         f"<div style='background:#1a1a2e;padding:8px 12px;"
@@ -335,7 +319,6 @@ with tab_lib:
 
                 st.divider()
 
-                # Check if this is a new-style brief with AI prompts
                 has_prompts = any([
                     b.get("firefly_prompt"),
                     b.get("chatgpt_prompt"),
@@ -344,11 +327,9 @@ with tab_lib:
 
                 if not has_prompts:
                     st.warning(
-                        "⚠ This brief was created with the old photography system. "
-                        "Click Regenerate to get AI image prompts."
+                        "⚠ No prompts yet. Click Regenerate to generate."
                     )
                 else:
-                    # Adobe Firefly
                     if b.get("firefly_prompt"):
                         st.markdown(
                             "**🔥 Adobe Firefly** — "
@@ -357,16 +338,14 @@ with tab_lib:
                         st.code(b["firefly_prompt"], language=None)
                         st.caption("↑ Click the copy icon top-right to copy")
 
-                    # ChatGPT / DALL-E 3
                     if b.get("chatgpt_prompt"):
                         st.markdown(
                             "**🤖 ChatGPT (DALL-E 3)** — "
                             "[open chatgpt.com](https://chatgpt.com)"
                         )
                         st.code(b["chatgpt_prompt"], language=None)
-                        st.caption("↑ In ChatGPT: click the image icon, paste prompt, select size from instructions")
+                        st.caption("↑ In ChatGPT: click the image icon, paste, select size from instructions")
 
-                    # Google Gemini
                     if b.get("gemini_prompt"):
                         st.markdown(
                             "**✨ Google Gemini** — "
@@ -375,13 +354,8 @@ with tab_lib:
                         st.code(b["gemini_prompt"], language=None)
                         st.caption("↑ In Gemini: paste prompt, set orientation as instructed")
 
-                st.caption(
-                    f"Created: {b['created_at']} · "
-                    f"Updated: {b['updated_at']} · "
-                    f"Cost: ${b['cost_usd']:.5f}"
-                )
+                st.caption(f"Created: {b['created_at']} · Updated: {b['updated_at']}")
 
-                # Approve / Reject / Regenerate buttons
                 if b["status"] != "approved":
                     ba, br, bregen = st.columns(3)
                     with ba:
@@ -397,7 +371,7 @@ with tab_lib:
                             with st.spinner("Regenerating…"):
                                 res = generate_media_brief(b["draft_id"], force=True)
                             if res["ok"]:
-                                st.success(f"Done. Cost: ${res['cost_usd']:.5f}")
+                                st.success("Done.")
                                 st.rerun()
                             else:
                                 st.error(res.get("error", "Error"))
@@ -412,7 +386,7 @@ with tab_lib:
                             with st.spinner("Regenerating…"):
                                 res = generate_media_brief(b["draft_id"], force=True)
                             if res["ok"]:
-                                st.success(f"Done. Cost: ${res['cost_usd']:.5f}")
+                                st.success("Done.")
                                 st.rerun()
                             else:
                                 st.error(res.get("error", "Error"))
@@ -459,8 +433,7 @@ with tab_pipe:
             SELECT d.id, d.platform, d.variant_number, d.status AS draft_status,
                    d.visual_photography_note,
                    sa.angle_title,
-                   mb.id AS brief_id, mb.status AS brief_status, mb.cost_usd,
-                   CASE WHEN mb.firefly_prompt IS NOT NULL THEN 1 ELSE 0 END AS has_prompts
+                   mb.id AS brief_id, mb.status AS brief_status
             FROM   drafts d
             JOIN   story_angles sa ON sa.id = d.story_angle_id
             LEFT   JOIN media_briefs mb ON mb.draft_id = d.id
@@ -486,60 +459,12 @@ with tab_pipe:
                 "Angle":         (r[5] or "")[:40],
                 "Prompts":       "✅" if r[6] else "⬜",
                 "Prompt Status": r[7] if r[6] else "— none",
-                "Cost ($)":      f"{r[8]:.5f}" if r[8] else "—",
             })
         df = pd.DataFrame(table_data)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.divider()
-
-    st.markdown("#### Media Agent Spend")
-    conn = get_connection()
-    try:
-        spend = conn.execute(
-            """
-            SELECT SUM(model_input_tokens), SUM(model_output_tokens),
-                   SUM(cost_usd), COUNT(*)
-            FROM   media_briefs
-            WHERE  product_id = ?
-            """,
-            (product_id,),
-        ).fetchone()
-    finally:
-        conn.close()
-
-    if spend and spend[3]:
-        sp1, sp2, sp3, sp4 = st.columns(4)
-        sp1.metric("Total Briefs",  spend[3])
-        sp2.metric("Input Tokens",  f"{spend[0]:,}" if spend[0] else "0")
-        sp3.metric("Output Tokens", f"{spend[1]:,}" if spend[1] else "0")
-        sp4.metric("Total Cost",    f"${spend[2]:.4f}" if spend[2] else "$0.0000")
-    else:
-        st.info("No spend data yet. Generate some prompts first.")
-
-    st.markdown("#### Last 10 API Calls")
-    conn = get_connection()
-    try:
-        log_rows = conn.execute(
-            """
-            SELECT timestamp, action, input_tokens, output_tokens,
-                   est_cost_usd, notes
-            FROM   api_log
-            WHERE  agent = 'media'
-            ORDER  BY id DESC
-            LIMIT  10
-            """,
-        ).fetchall()
-    finally:
-        conn.close()
-
-    if log_rows:
-        import pandas as pd
-
-        log_df = pd.DataFrame(log_rows, columns=[
-            "Timestamp", "Action", "Input Tokens", "Output Tokens",
-            "Cost ($)", "Notes",
-        ])
-        st.dataframe(log_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("No API calls logged yet.")
+    st.info(
+        "💡 Media Studio uses zero-cost template generation. "
+        "No API spend to track here."
+    )

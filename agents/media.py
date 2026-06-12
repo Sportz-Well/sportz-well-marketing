@@ -1,12 +1,13 @@
 """
 agents/media.py
 ───────────────
-Media agent — generates three AI image generation prompts per draft:
-Adobe Firefly, ChatGPT (DALL-E 3), and Google Gemini.
+Media agent — generates three AI image generation prompts per draft
+using a template function. Zero API cost.
 
-Visual Photography Note: an optional per-draft note added by the user
-that supplements the copywriter's image_brief with specific creative
-direction. The note takes priority over the image_brief when present.
+Prompts are built from the draft's visual_photography_note (written by
+the Copywriter) or image_brief as fallback. The template wraps the source
+text with tool-specific style instructions and the correct platform aspect
+ratio.
 
 Public API
 ──────────
@@ -24,33 +25,23 @@ Output schema (three prompts per draft)
 ────────────────────────────────────────
     { "firefly": str, "chatgpt": str, "gemini": str }
 
-Cost model
-──────────
-    ~$0.003–0.006 per brief (pure reasoning, no web search).
-    Logged to api_log table and data/api_log.csv.
+Cost
+────
+    Zero. Template-based — no API call.
 """
 
 from __future__ import annotations
 
-import csv
 import json
-import re
 from datetime import datetime, timezone
-from json import JSONDecoder
-from pathlib import Path
 from typing import Any
 
-from services.anthropic_client import ask_with_usage
-from services.brand_context import build_brand_context_prompt
 from services.database import get_connection
 
-AGENT_NAME            = "media"
-CSV_LOG_PATH          = Path(__file__).parent.parent / "data" / "api_log.csv"
-VALID_STATUSES        = {"pending", "approved", "rejected"}
-COST_PER_INPUT_TOKEN  = 3.0  / 1_000_000
-COST_PER_OUTPUT_TOKEN = 15.0 / 1_000_000
+AGENT_NAME     = "media"
+VALID_STATUSES = {"pending", "approved", "rejected"}
 
-# Platform-specific aspect ratios for each tool
+# Platform-specific aspect ratios per tool
 _ASPECT_RATIOS = {
     "instagram": {
         "firefly": "4:5 (Portrait)",
@@ -69,164 +60,61 @@ _ASPECT_RATIOS = {
     },
 }
 
+# Style suffix appended to source text for each tool
+_TOOL_STYLE = {
+    "firefly": (
+        "Documentary photography style, authentic and unposed, "
+        "no clearly identifiable faces, no logos, no text in frame."
+    ),
+    "chatgpt": (
+        "Shot on 85mm lens, shallow depth of field, editorial documentary "
+        "photography style, authentic and unposed, no clearly identifiable faces. "
+        "No text, no logos."
+    ),
+    "gemini": (
+        "Authentic and editorial atmosphere, no posed shots, "
+        "no clearly identifiable faces, no logos, no text."
+    ),
+}
+
 _last_run_info: dict | None = None
 
 
-# ── System prompt ──────────────────────────────────────────────────────────
+# ── Template prompt builder ────────────────────────────────────────────────
 
-def _build_system_prompt(product_id: int) -> str:
-    brand_block = build_brand_context_prompt(product_id)
-    return f"""You are an AI image prompt specialist for a sports and lifestyle brand.
+def _build_prompts_from_note(source_text: str, platform: str) -> dict:
+    """
+    Build three tool-specific image prompts from a source text.
+    source_text is the visual_photography_note (preferred) or image_brief.
+    Platform determines aspect ratio injected into each prompt.
+    """
+    ar   = _ASPECT_RATIOS.get(platform.lower(), _ASPECT_RATIOS["instagram"])
+    text = source_text.strip()
 
-Your job is to read a social media draft's context and image_brief, then generate
-three ready-to-use image generation prompts: one each for Adobe Firefly,
-ChatGPT (DALL-E 3), and Google Gemini.
+    # Ensure source ends with sentence-ending punctuation before appending
+    if text and text[-1] not in (".", "!", "?"):
+        text += "."
 
-{brand_block}
+    firefly = (
+        f"{text} "
+        f"{_TOOL_STYLE['firefly']} "
+        f"In Firefly, set Content Type to Photo and aspect ratio to "
+        f"{ar['firefly']} in Firefly settings."
+    )
 
-Use the brand context above to determine the correct visual world: appropriate
-settings, subjects, style, and emotional register. Every prompt must feel native
-to this brand — not generic.
+    chatgpt = (
+        f"Photorealistic documentary photograph. {text} "
+        f"{_TOOL_STYLE['chatgpt']} "
+        f"In ChatGPT, click the image icon and select {ar['chatgpt']}."
+    )
 
-If a VISUAL PHOTOGRAPHY NOTE is provided in the draft context, it takes priority
-over the image brief and brand defaults. It is specific creative direction for
-this exact post — honour it precisely.
+    gemini = (
+        f"{text} "
+        f"{_TOOL_STYLE['gemini']} "
+        f"Generate as {ar['gemini']}."
+    )
 
-UNIVERSAL VISUAL PRINCIPLES
-─────────────────────────────
-- Authentic and editorial style — never stock-photo, never posed glamour
-- No clearly identifiable faces
-- No brand logos, no product packaging, no text or numbers in frame
-- Emotional tone must match the caption hook exactly
-- Composition should feel documentary, not promotional
-
-FIREFLY RULES (Adobe Firefly)
-──────────────────────────────
-- 2 sentences, plain English
-- Sentence 1: subject, action, setting — drawn from brand context and brief
-- Sentence 2: lighting mood, photography style, colour palette
-- End with: 'No logos, no text. In Firefly, set Content Type to Photo and
-  aspect ratio to [use the Firefly value from draft context].'
-
-CHATGPT RULES (DALL-E 3 via ChatGPT)
-──────────────────────────────────────
-- 3-4 sentences starting with: 'Photorealistic documentary photograph of...'
-- Include camera detail: 'shot on 85mm lens, shallow depth of field'
-- Include lighting quality: golden hour / overcast / indoor / studio
-- End with: 'No text, no logos. In ChatGPT, click the image icon and
-  select [use the ChatGPT size from draft context].'
-
-GEMINI RULES (Google Gemini)
-─────────────────────────────
-- 2-3 sentences, plain conversational English
-- Describe as if briefing a photographer on location — scene and atmosphere
-- Include the emotional feeling, not just the physical description
-- End with: 'No text, no logos. Generate as [use the Gemini orientation
-  from draft context].'
-
-OUTPUT RULES
-────────────
-1. Respond ONLY with a single valid JSON object — no prose, no markdown fences.
-2. All three fields required: firefly, chatgpt, gemini
-3. Do NOT use double-quote characters inside string values. Use single quotes.
-4. Output once — no revisions, no commentary after the JSON.
-
-JSON SCHEMA
-───────────
-{{
-  "firefly": "<Adobe Firefly prompt with aspect ratio instruction>",
-  "chatgpt": "<ChatGPT DALL-E 3 prompt with size selection instruction>",
-  "gemini":  "<Google Gemini prompt with orientation instruction>"
-}}
-"""
-
-
-# ── User prompt builder ────────────────────────────────────────────────────
-
-def _build_user_prompt(draft: dict) -> str:
-    angle_title  = draft.get("angle_title") or "Untitled angle"
-    platform     = (draft.get("platform") or "instagram").lower()
-    headline     = draft.get("headline") or "(no headline)"
-    body_snippet = (draft.get("body") or "")[:300]
-    image_brief  = draft.get("image_brief") or "(no image brief provided)"
-    visual_note  = (draft.get("visual_photography_note") or "").strip()
-
-    ar = _ASPECT_RATIOS.get(platform, _ASPECT_RATIOS["instagram"])
-
-    note_block = ""
-    if visual_note:
-        note_block = f"""
-VISUAL PHOTOGRAPHY NOTE  \u2190 prioritise this over the image brief below
-\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-{visual_note}
-"""
-
-    return f"""Generate three AI image generation prompts for the following social media draft.
-
-DRAFT CONTEXT
-\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-Story angle  : {angle_title}
-Platform     : {platform.capitalize()}
-Headline     : {headline}
-Body snippet : {body_snippet}{"..." if len(draft.get("body", "")) > 300 else ""}
-
-IMAGE BRIEF (from Copywriter)
-\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-{image_brief}
-{note_block}
-ASPECT RATIOS FOR THIS DRAFT
-\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-Firefly  : {ar['firefly']}
-ChatGPT  : {ar['chatgpt']}
-Gemini   : {ar['gemini']}
-
-Generate three prompts following the JSON schema and the rules for each tool.
-Use the exact aspect ratio values above in each prompt's closing instruction.
-"""
-
-
-# ── JSON parser (4-strategy) ───────────────────────────────────────────────
-
-def _parse_brief_response(raw: str) -> dict | None:
-    # Strategy 1 — direct parse
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
-
-    # Strategy 2 — strip markdown fences
-    cleaned = re.sub(r"```(?:json)?", "", raw).replace("```", "").strip()
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-
-    # Strategy 3 — remove trailing commas
-    no_trailing = re.sub(r",\s*([}\]])", r"\1", cleaned)
-    try:
-        return json.loads(no_trailing)
-    except json.JSONDecodeError:
-        pass
-
-    # Strategy 4 — raw_decode from first {
-    decoder = JSONDecoder()
-    for match in re.finditer(r"\{", no_trailing):
-        try:
-            obj, _ = decoder.raw_decode(no_trailing, match.start())
-            return obj
-        except json.JSONDecodeError:
-            continue
-
-    return None
-
-
-# ── Validation ─────────────────────────────────────────────────────────────
-
-def _validate_and_normalise(data: dict) -> tuple[bool, str, dict]:
-    for field in ("firefly", "chatgpt", "gemini"):
-        if not data.get(field) or not str(data[field]).strip():
-            return False, f"Missing required field: {field}", data
-    return True, "", data
+    return {"firefly": firefly, "chatgpt": chatgpt, "gemini": gemini}
 
 
 # ── DB helpers ─────────────────────────────────────────────────────────────
@@ -256,8 +144,12 @@ def _get_draft_with_angle(draft_id: int, conn) -> dict | None:
 
 
 def _save_brief(conn, draft_id: int, product_id: int,
-                data: dict, raw: str, input_tokens: int,
-                output_tokens: int, cost: float) -> int:
+                prompts: dict, source_text: str) -> int:
+    """
+    Insert or update a media brief. Legacy photography columns receive empty
+    defaults so existing schema constraints are satisfied.
+    input_tokens, output_tokens, and cost_usd are always 0 (no API call).
+    """
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
         """
@@ -275,7 +167,7 @@ def _save_brief(conn, draft_id: int, product_id: int,
             '[]', '', '[]', NULL,
             '[]', '',
             ?, ?, ?,
-            ?, ?, ?, ?,
+            ?, 0, 0, 0.0,
             'pending', ?, ?
         )
         ON CONFLICT(draft_id) DO UPDATE SET
@@ -283,16 +175,16 @@ def _save_brief(conn, draft_id: int, product_id: int,
             chatgpt_prompt      = EXCLUDED.chatgpt_prompt,
             gemini_prompt       = EXCLUDED.gemini_prompt,
             raw_model_response  = EXCLUDED.raw_model_response,
-            model_input_tokens  = EXCLUDED.model_input_tokens,
-            model_output_tokens = EXCLUDED.model_output_tokens,
-            cost_usd            = EXCLUDED.cost_usd,
+            model_input_tokens  = 0,
+            model_output_tokens = 0,
+            cost_usd            = 0.0,
             status              = 'pending',
             updated_at          = EXCLUDED.updated_at
         """,
         (
             draft_id, product_id,
-            data["firefly"], data["chatgpt"], data["gemini"],
-            raw, input_tokens, output_tokens, cost,
+            prompts["firefly"], prompts["chatgpt"], prompts["gemini"],
+            source_text,
             now, now,
         ),
     )
@@ -300,34 +192,6 @@ def _save_brief(conn, draft_id: int, product_id: int,
         "SELECT id FROM media_briefs WHERE draft_id = ?", (draft_id,)
     ).fetchone()
     return row[0] if row else -1
-
-
-def _log_api_call(conn, action: str, input_tokens: int,
-                  output_tokens: int, cost: float, notes: str = "") -> None:
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    conn.execute(
-        """
-        INSERT INTO api_log
-            (timestamp, agent, action, input_tokens, output_tokens,
-             web_searches, est_cost_usd, notes)
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-        """,
-        (now, AGENT_NAME, action, input_tokens, output_tokens, cost, notes),
-    )
-    CSV_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    write_header = not CSV_LOG_PATH.exists()
-    with open(CSV_LOG_PATH, "a", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        if write_header:
-            w.writerow([
-                "timestamp", "agent", "action",
-                "input_tokens", "output_tokens", "web_searches",
-                "est_cost_usd", "notes",
-            ])
-        w.writerow([
-            now, AGENT_NAME, action,
-            input_tokens, output_tokens, 0, round(cost, 6), notes,
-        ])
 
 
 # ── Public: visual note ────────────────────────────────────────────────────
@@ -363,7 +227,8 @@ def get_visual_note(draft_id: int) -> str | None:
 def generate_media_brief(draft_id: int, force: bool = False) -> dict:
     """
     Generate (or regenerate) AI image prompts for a single draft.
-    Returns cached brief without API call if one exists and force=False.
+    Uses template function — zero API cost, instant generation.
+    Returns cached brief without regenerating if force=False and brief exists.
     """
     global _last_run_info
 
@@ -376,8 +241,7 @@ def generate_media_brief(draft_id: int, force: bool = False) -> dict:
             brief = get_brief_for_draft(draft_id)
             return {
                 "ok": True, "brief_id": existing[0], "draft_id": draft_id,
-                "data": brief, "cost_usd": 0.0,
-                "input_tokens": 0, "output_tokens": 0, "cached": True,
+                "data": brief, "cost_usd": 0.0, "cached": True,
             }
 
         draft = _get_draft_with_angle(draft_id, conn)
@@ -385,79 +249,35 @@ def generate_media_brief(draft_id: int, force: bool = False) -> dict:
             return {"ok": False, "draft_id": draft_id,
                     "error": f"Draft {draft_id} not found."}
 
-        has_image_brief = bool((draft.get("image_brief") or "").strip())
-        has_visual_note = bool((draft.get("visual_photography_note") or "").strip())
+        visual_note = (draft.get("visual_photography_note") or "").strip()
+        image_brief = (draft.get("image_brief") or "").strip()
+        source_text = visual_note or image_brief
 
-        if not has_image_brief and not has_visual_note:
+        if not source_text:
             return {
                 "ok": False, "draft_id": draft_id,
                 "error": (
-                    f"Draft {draft_id} has no image_brief or visual note — "
+                    f"Draft {draft_id} has no visual note or image brief — "
                     "add one before generating."
                 ),
             }
 
-        product_id    = draft["product_id"]
-        system_prompt = _build_system_prompt(product_id)
-        user_prompt   = _build_user_prompt(draft)
+        platform   = (draft.get("platform") or "instagram").lower()
+        product_id = draft["product_id"]
 
-        result = ask_with_usage(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=1200,
-        )
-
-        if result.get("error"):
-            return {"ok": False, "draft_id": draft_id,
-                    "error": f"API error: {result['error']}", "cost_usd": 0.0}
-
-        response_text = result["text"]
-        input_tokens  = result.get("input_tokens", 0)
-        output_tokens = result.get("output_tokens", 0)
-        cost = (input_tokens * COST_PER_INPUT_TOKEN +
-                output_tokens * COST_PER_OUTPUT_TOKEN)
-
-        parsed = _parse_brief_response(response_text)
-        if parsed is None:
-            _log_api_call(conn, f"draft_{draft_id}_PARSE_FAIL",
-                          input_tokens, output_tokens, cost, "JSON parse failed")
-            conn.commit()
-            return {
-                "ok": False, "draft_id": draft_id,
-                "error": "Could not parse model response as JSON.",
-                "raw_response": response_text, "cost_usd": cost,
-            }
-
-        ok, err, normalised = _validate_and_normalise(parsed)
-        if not ok:
-            _log_api_call(conn, f"draft_{draft_id}_VALIDATION_FAIL",
-                          input_tokens, output_tokens, cost, f"Validation: {err}")
-            conn.commit()
-            return {"ok": False, "draft_id": draft_id,
-                    "error": err, "cost_usd": cost}
-
-        brief_id = _save_brief(conn, draft_id, product_id, normalised,
-                               response_text, input_tokens, output_tokens, cost)
-
-        action_label = (draft.get("angle_title") or f"draft_{draft_id}")[:80]
-        _log_api_call(conn, f"prompts: {action_label}",
-                      input_tokens, output_tokens, cost)
+        prompts  = _build_prompts_from_note(source_text, platform)
+        brief_id = _save_brief(conn, draft_id, product_id, prompts, source_text)
         conn.commit()
 
         _last_run_info = {
-            "draft_id":      draft_id,
-            "brief_id":      brief_id,
-            "input_tokens":  input_tokens,
-            "output_tokens": output_tokens,
-            "cost_usd":      cost,
-            "timestamp":     datetime.now(timezone.utc).isoformat(),
+            "draft_id":  draft_id,
+            "brief_id":  brief_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         return {
             "ok": True, "brief_id": brief_id, "draft_id": draft_id,
-            "data": normalised, "cost_usd": cost,
-            "input_tokens": input_tokens, "output_tokens": output_tokens,
-            "cached": False,
+            "data": prompts, "cost_usd": 0.0, "cached": False,
         }
 
     finally:
@@ -499,7 +319,7 @@ def generate_all_pending(product_id: int, force: bool = False) -> dict:
         res = generate_media_brief(did, force=force)
         if not res["ok"]:
             err = res.get("error", "unknown error")
-            if "no image_brief or visual note" in err.lower():
+            if "no visual note or image brief" in err.lower():
                 results["skipped_no_source"] += 1
             else:
                 results["failed"] += 1
@@ -508,7 +328,6 @@ def generate_all_pending(product_id: int, force: bool = False) -> dict:
             results["cached"] += 1
         else:
             results["generated"] += 1
-            results["total_cost_usd"] += res.get("cost_usd", 0)
 
     return results
 
@@ -523,8 +342,7 @@ def get_brief_for_draft(draft_id: int) -> dict | None:
             """
             SELECT mb.id, mb.draft_id, mb.product_id,
                    mb.firefly_prompt, mb.chatgpt_prompt, mb.gemini_prompt,
-                   mb.model_input_tokens, mb.model_output_tokens, mb.cost_usd,
-                   mb.status, mb.created_at, mb.updated_at,
+                   mb.cost_usd, mb.status, mb.created_at, mb.updated_at,
                    d.platform, d.headline, d.image_brief,
                    d.visual_photography_note,
                    sa.angle_title
@@ -540,8 +358,7 @@ def get_brief_for_draft(draft_id: int) -> dict | None:
         cols = [
             "id", "draft_id", "product_id",
             "firefly_prompt", "chatgpt_prompt", "gemini_prompt",
-            "model_input_tokens", "model_output_tokens", "cost_usd",
-            "status", "created_at", "updated_at",
+            "cost_usd", "status", "created_at", "updated_at",
             "platform", "headline", "image_brief",
             "visual_photography_note",
             "angle_title",
@@ -572,8 +389,7 @@ def get_media_library(
         sql = f"""
             SELECT mb.id, mb.draft_id,
                    mb.firefly_prompt, mb.chatgpt_prompt, mb.gemini_prompt,
-                   mb.model_input_tokens, mb.model_output_tokens, mb.cost_usd,
-                   mb.status, mb.created_at, mb.updated_at,
+                   mb.cost_usd, mb.status, mb.created_at, mb.updated_at,
                    d.platform, d.variant_number, d.headline, d.image_brief,
                    d.content_format, d.status AS draft_status,
                    d.visual_photography_note,
@@ -588,8 +404,7 @@ def get_media_library(
         cols = [
             "id", "draft_id",
             "firefly_prompt", "chatgpt_prompt", "gemini_prompt",
-            "model_input_tokens", "model_output_tokens", "cost_usd",
-            "status", "created_at", "updated_at",
+            "cost_usd", "status", "created_at", "updated_at",
             "platform", "variant_number", "headline", "image_brief",
             "content_format", "draft_status",
             "visual_photography_note",
