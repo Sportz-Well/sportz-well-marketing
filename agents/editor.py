@@ -17,7 +17,6 @@ from __future__ import annotations
 import csv
 import json
 import re
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -542,7 +541,7 @@ def _log_api_call(product_id, input_tokens, output_tokens, cost, notes=""):
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ts, "editor", action, input_tokens, output_tokens, 0, cost, notes),
             )
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
 
@@ -594,7 +593,7 @@ def count_unreviewed_drafts(product_id: int) -> int:
                 (product_id,),
             ).fetchone()
         return int(row[0])
-    except sqlite3.OperationalError:
+    except Exception:
         return 0
 
 
@@ -607,5 +606,5 @@ def count_reviews_total(product_id: int) -> int:
                 (product_id,),
             ).fetchone()
         return int(row[0])
-    except sqlite3.OperationalError:
+    except Exception:
         return 0

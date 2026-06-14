@@ -15,7 +15,6 @@ Run from the project root:  streamlit run ui/app.py
 from __future__ import annotations
 
 import json
-import sqlite3
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -46,6 +45,7 @@ init_page()
 _PLATFORM_BADGE: dict[str, str] = {
     "instagram": "📸 Instagram",
     "facebook":  "📘 Facebook",
+    "linkedin":  "💼 LinkedIn",
 }
 _VERDICT_BADGE: dict[str, str] = {
     "clean":   "✅ Clean",
@@ -57,7 +57,7 @@ _SEVERITY_BADGE: dict[str, str] = {
 }
 
 
-# ─── DB helpers (UI-page local, per Strategy precedent) ───────────────────────
+# ─── DB helpers ───────────────────────────────────────────────────────────────
 
 def _safe_json_list(value: str | None) -> list:
     try:
@@ -67,15 +67,30 @@ def _safe_json_list(value: str | None) -> list:
         return []
 
 
-def _get_all_drafts_with_review_status(product_id: int) -> list[dict]:
-    """Return every draft for this product, with a summary of its latest review (if any).
+def _get_all_drafts_with_review_status(
+    product_id: int,
+    exclude_posted: bool = True,
+) -> list[dict]:
+    """Return drafts for this product with their latest review summary.
 
-    Sort order: unreviewed first (NULLS FIRST), then most-recently-reviewed.
+    By default excludes drafts that have been marked as posted in the
+    schedule table — they are done and shouldn't clutter the active queue.
+    Pass exclude_posted=False to see everything including posted drafts.
+
+    Sort: unreviewed first, then most-recently-reviewed.
     """
+    posted_filter = """
+        AND NOT EXISTS (
+            SELECT 1 FROM schedule s
+            WHERE s.draft_id = d.id
+            AND s.posted_at IS NOT NULL
+        )
+    """ if exclude_posted else ""
+
     try:
         with get_connection() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT
                     d.id              AS draft_id,
                     d.platform        AS platform,
@@ -105,6 +120,7 @@ def _get_all_drafts_with_review_status(product_id: int) -> list[dict]:
                     FROM editor_reviews GROUP BY draft_id
                 ) total ON total.draft_id = d.id
                 WHERE d.product_id = ?
+                {posted_filter}
                 ORDER BY
                     CASE WHEN latest.reviewed_at IS NULL THEN 0 ELSE 1 END,
                     latest.reviewed_at DESC,
@@ -149,17 +165,17 @@ def _get_review_history(draft_id: int) -> list[dict]:
 
 
 def _get_pipeline_stats(product_id: int) -> dict:
-    """Aggregate stats for Tab C. Single trip to the DB per logical view."""
+    """Aggregate stats for Tab C."""
     stats = {
-        "total_drafts":          0,
-        "unreviewed":            0,
-        "reviewed":              0,
-        "clean":                 0,
-        "flagged":               0,
-        "total_reviews":         0,
-        "drafts_re_reviewed":    0,
-        "issue_codes":           Counter(),
-        "issue_severities":      Counter(),
+        "total_drafts":       0,
+        "unreviewed":         0,
+        "reviewed":           0,
+        "clean":              0,
+        "flagged":            0,
+        "total_reviews":      0,
+        "drafts_re_reviewed": 0,
+        "issue_codes":        Counter(),
+        "issue_severities":   Counter(),
     }
 
     try:
@@ -185,16 +201,16 @@ def _get_pipeline_stats(product_id: int) -> dict:
     for row in review_rows:
         draft_id = row["draft_id"]
         review_counts[draft_id] += 1
-        latest_by_draft[draft_id] = dict(row)  # last write wins → latest review_number
+        latest_by_draft[draft_id] = dict(row)
 
         for issue in _safe_json_list(row["issues_json"]):
             if isinstance(issue, dict):
                 stats["issue_codes"][issue.get("code", "UNKNOWN")] += 1
                 stats["issue_severities"][issue.get("severity", "unknown")] += 1
 
-    stats["total_reviews"] = len(review_rows)
-    stats["reviewed"]      = len(latest_by_draft)
-    stats["unreviewed"]    = stats["total_drafts"] - stats["reviewed"]
+    stats["total_reviews"]      = len(review_rows)
+    stats["reviewed"]           = len(latest_by_draft)
+    stats["unreviewed"]         = stats["total_drafts"] - stats["reviewed"]
     stats["drafts_re_reviewed"] = sum(1 for c in review_counts.values() if c > 1)
 
     for d in latest_by_draft.values():
@@ -207,17 +223,7 @@ def _get_pipeline_stats(product_id: int) -> dict:
 
 
 def _get_editor_spend() -> dict:
-    """Return Editor-specific spend stats from api_log.
-
-    Shape:
-        {
-            "today_usd":     float,
-            "month_usd":     float,
-            "alltime_usd":   float,
-            "total_calls":   int,
-            "recent_calls":  list[dict],   # last 20, newest first
-        }
-    """
+    """Return Editor-specific spend stats from api_log."""
     stats = {
         "today_usd":    0.0,
         "month_usd":    0.0,
@@ -226,9 +232,9 @@ def _get_editor_spend() -> dict:
         "recent_calls": [],
     }
 
-    now      = datetime.now(timezone.utc)
-    today    = now.strftime("%Y-%m-%d")
-    month    = now.strftime("%Y-%m")
+    now   = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    month = now.strftime("%Y-%m")
 
     try:
         with get_connection() as conn:
@@ -255,9 +261,6 @@ def _get_editor_spend() -> dict:
                    LIMIT 20""",
             ).fetchall()
             stats["recent_calls"] = [dict(r) for r in recent_rows]
-    except sqlite3.OperationalError:
-        # api_log table missing — return zeros, no crash
-        pass
     except Exception:
         pass
 
@@ -265,8 +268,8 @@ def _get_editor_spend() -> dict:
 
 
 def _draft_label(d: dict) -> str:
-    """Format a draft as: #11 · 📘 Facebook V1 · Kirti angle title (40 chars)."""
-    plat = _PLATFORM_BADGE.get(d["platform"], d["platform"])
+    """Format a draft as: #11 · 💼 LinkedIn V1 · Angle title."""
+    plat = _PLATFORM_BADGE.get(d["platform"], d["platform"].capitalize())
     title = (d.get("angle_title") or "—")[:50]
     suffix = ""
     if d.get("latest_verdict"):
@@ -277,7 +280,6 @@ def _draft_label(d: dict) -> str:
 
 
 def _render_issues(issues: list[dict], expanded: bool = True) -> None:
-    """Render a list of issues grouped by severity. Used in Tab A and Tab B."""
     if not issues:
         st.success("No issues — draft is clean.", icon="✅")
         return
@@ -351,7 +353,7 @@ tab_a, tab_b, tab_c = st.tabs(["Review Draft", "Reviews Library", "Pipeline Over
 
 with tab_a:
     st.info(
-        "**Cost heads-up:** Each new review costs approximately **$0.02 – $0.08** "
+        "**Cost heads-up:** Each new review costs approximately **₹2–₹8** "
         "(pure reasoning, no web search). Cached reviews are free.",
         icon="💰",
     )
@@ -359,42 +361,41 @@ with tab_a:
     last_run = get_last_run_info(product_id)
     if last_run and last_run["failed"]:
         st.warning(
-            f"⚠ Last run failed and cost **${last_run['cost']:.4f}** — "
+            f"⚠ Last run failed and cost **₹{last_run['cost'] * 95:.2f}** — "
             "see `data/editor_failed_responses.log` for the full raw response.",
             icon="⚠️",
         )
 
-    drafts = _get_all_drafts_with_review_status(product_id)
+    # Exclude posted drafts — no point reviewing something already live
+    drafts = _get_all_drafts_with_review_status(product_id, exclude_posted=True)
 
     if not drafts:
         st.warning(
-            "No drafts found for this product. Run the Copywriter first to generate drafts.",
+            "No active drafts found. Posted drafts are hidden — they're done. "
+            "Run the Copywriter to generate new drafts.",
             icon="⚠️",
         )
     else:
         unreviewed_n = sum(1 for d in drafts if d["review_count"] == 0)
         st.caption(
-            f"{len(drafts)} draft{'s' if len(drafts) != 1 else ''} total · "
-            f"{unreviewed_n} not yet reviewed"
+            f"{len(drafts)} active draft{'s' if len(drafts) != 1 else ''} · "
+            f"{unreviewed_n} not yet reviewed · Posted drafts hidden"
         )
 
-        # ── Draft picker ──
         draft_options = {_draft_label(d): d for d in drafts}
         selected_label = st.selectbox(
             "Pick a draft to review",
             options=list(draft_options.keys()),
             key="tab_a_draft_picker",
         )
-        selected = draft_options[selected_label]
+        selected    = draft_options[selected_label]
         selected_id = selected["draft_id"]
 
-        # ── Status under picker ──
         rc = selected["review_count"]
         if rc == 0:
-            st.info("Not yet reviewed. Click **Review** to run the editor on this draft.",
-                    icon="🆕")
+            st.info("Not yet reviewed. Click **Review** to run the editor on this draft.", icon="🆕")
         else:
-            verdict = selected.get("latest_verdict") or "?"
+            verdict       = selected.get("latest_verdict") or "?"
             verdict_badge = _VERDICT_BADGE.get(verdict, verdict)
             st.info(
                 f"Already reviewed — **{rc} review{'s' if rc != 1 else ''}** in history. "
@@ -402,7 +403,6 @@ with tab_a:
                 icon="📋",
             )
 
-        # ── Two buttons ──
         col_review, col_rereview, _ = st.columns([1, 1, 3])
 
         with col_review:
@@ -419,12 +419,10 @@ with tab_a:
                 "Re-review (force new API call)",
                 type="secondary",
                 key="tab_a_rereview_btn",
-                help="Always calls the API and adds a new review row to the history. "
-                     "Costs $0.02–$0.08.",
-                disabled=(rc == 0),  # nothing to re-review if never reviewed
+                help="Always calls the API and adds a new review row to the history. Costs ₹2–₹8.",
+                disabled=(rc == 0),
             )
 
-        # ── Run handler ──
         result = None
         if review_btn:
             from agents.editor import review_draft
@@ -439,14 +437,15 @@ with tab_a:
             if result.get("error"):
                 st.error(f"Review failed: {result['error']}")
             else:
-                verdict      = result["verdict"]
-                issues       = result["issues"]
-                cost         = result["est_cost_usd"]
-                review_num   = result["review_number"]
-                hard_n       = sum(1 for i in issues if i.get("severity") == "hard")
-                soft_n       = sum(1 for i in issues if i.get("severity") == "soft")
+                verdict       = result["verdict"]
+                issues        = result["issues"]
+                cost          = result["est_cost_usd"]
+                review_num    = result["review_number"]
+                hard_n        = sum(1 for i in issues if i.get("severity") == "hard")
+                soft_n        = sum(1 for i in issues if i.get("severity") == "soft")
 
-                cost_display = "Free (cached)" if cost == 0.0 else f"${cost:.4f}"
+                cost_inr      = cost * 95
+                cost_display  = "Free (cached)" if cost == 0.0 else f"₹{cost_inr:.2f}"
                 verdict_badge = _VERDICT_BADGE.get(verdict, verdict or "?")
 
                 st.success(
@@ -462,7 +461,19 @@ with tab_a:
 # ─── TAB B — Reviews Library ─────────────────────────────────────────────────
 
 with tab_b:
-    all_drafts = _get_all_drafts_with_review_status(product_id)
+
+    # ── Show posted toggle (above filters) ──
+    show_posted = st.checkbox(
+        "Show posted drafts",
+        value=False,
+        help="Posted drafts are hidden by default — they're done. Tick this to see them.",
+        key="lib_show_posted",
+    )
+
+    all_drafts = _get_all_drafts_with_review_status(
+        product_id,
+        exclude_posted=not show_posted,
+    )
 
     if not all_drafts:
         st.info(
@@ -474,20 +485,20 @@ with tab_b:
         col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 2])
 
         with col_f1:
-            verdict_opts = ["All", "Clean", "Flagged", "Not reviewed"]
+            verdict_opts   = ["All", "Clean", "Flagged", "Not reviewed"]
             verdict_filter = st.selectbox("Verdict", verdict_opts, key="lib_verdict")
 
         with col_f2:
-            platform_opts = ["All", "Instagram", "Facebook"]
+            platform_opts   = ["All", "Instagram", "Facebook", "LinkedIn"]
             platform_filter = st.selectbox("Platform", platform_opts, key="lib_platform")
 
         with col_f3:
-            severity_opts = ["All", "Has hard issues", "Has soft only", "No issues"]
+            severity_opts   = ["All", "Has hard issues", "Has soft only", "No issues"]
             severity_filter = st.selectbox("Issues", severity_opts, key="lib_severity")
 
         with col_f4:
             sort_opts = ["Newest review first", "Draft ID asc", "Verdict (flagged first)"]
-            sort_by = st.selectbox("Sort by", sort_opts, key="lib_sort")
+            sort_by   = st.selectbox("Sort by", sort_opts, key="lib_sort")
 
         # ── Apply filters ──
         filtered = all_drafts
@@ -509,30 +520,28 @@ with tab_b:
             filtered = [d for d in filtered
                         if d["issues"] and not any(i.get("severity") == "hard" for i in d["issues"])]
         elif severity_filter == "No issues":
-            filtered = [d for d in filtered
-                        if d.get("latest_verdict") == "clean"]
+            filtered = [d for d in filtered if d.get("latest_verdict") == "clean"]
 
         # ── Sort ──
         if sort_by == "Draft ID asc":
             filtered = sorted(filtered, key=lambda d: d["draft_id"])
         elif sort_by == "Verdict (flagged first)":
-            order = {"flagged": 0, "clean": 1, None: 2}
+            order    = {"flagged": 0, "clean": 1, None: 2}
             filtered = sorted(filtered, key=lambda d: order.get(d.get("latest_verdict"), 3))
-        # Newest review first is already the default DB sort order
 
-        st.caption(f"{len(filtered)} draft{'s' if len(filtered) != 1 else ''} shown")
+        hidden_note = "" if show_posted else " · Posted drafts hidden"
+        st.caption(f"{len(filtered)} draft{'s' if len(filtered) != 1 else ''} shown{hidden_note}")
 
         if not filtered:
             st.info("No drafts match the current filters.", icon="🔍")
 
         for d in filtered:
-            draft_id = d["draft_id"]
-            verdict  = d.get("latest_verdict")
+            draft_id      = d["draft_id"]
+            verdict       = d.get("latest_verdict")
             verdict_badge = (
-                _VERDICT_BADGE.get(verdict, verdict)
-                if verdict else "⚪ Not reviewed"
+                _VERDICT_BADGE.get(verdict, verdict) if verdict else "⚪ Not reviewed"
             )
-            platform = _PLATFORM_BADGE.get(d["platform"], d["platform"])
+            platform = _PLATFORM_BADGE.get(d["platform"], d["platform"].capitalize())
             title    = d.get("angle_title") or "—"
             rc       = d["review_count"]
 
@@ -553,8 +562,7 @@ with tab_b:
                     issue_summary = " — " + ", ".join(parts)
 
             review_label = (
-                f"{rc} review{'s' if rc != 1 else ''}"
-                if rc > 0 else "no reviews yet"
+                f"{rc} review{'s' if rc != 1 else ''}" if rc > 0 else "no reviews yet"
             )
 
             with st.expander(
@@ -566,23 +574,19 @@ with tab_b:
                 if rc == 0:
                     st.caption("This draft has no reviews yet. Go to **Review Draft** tab to run one.")
                 else:
-                    # ── Latest review issues ──
                     st.markdown(
                         f"##### Latest review (#{d['latest_review_number']}) · "
                         f"{d.get('latest_reviewed_at', '—')}"
                     )
                     _render_issues(issues)
 
-                    # ── Full audit trail ──
                     if rc > 1:
                         with st.expander(f"📜 Full review history ({rc} reviews)"):
                             history = _get_review_history(draft_id)
                             for h in history:
                                 h_verdict = _VERDICT_BADGE.get(h["verdict"], h["verdict"])
-                                cost_str  = (
-                                    f"${h['cost_usd']:.4f}"
-                                    if h.get("cost_usd") else "—"
-                                )
+                                cost_inr  = (h["cost_usd"] or 0) * 95
+                                cost_str  = f"₹{cost_inr:.2f}" if h.get("cost_usd") else "—"
                                 st.markdown(
                                     f"**Review #{h['review_number']}** · "
                                     f"{h_verdict} · "
@@ -595,7 +599,6 @@ with tab_b:
                                     st.caption("No issues.")
                                 st.markdown("---")
 
-                    # ── Re-review button ──
                     col_rr, _ = st.columns([1, 4])
                     with col_rr:
                         if st.button(
@@ -620,7 +623,6 @@ with tab_c:
             icon="ℹ️",
         )
     else:
-        # ── Review coverage ──
         st.markdown("### Review coverage")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total drafts",  stats["total_drafts"])
@@ -638,7 +640,6 @@ with tab_c:
 
         st.divider()
 
-        # ── Verdict distribution ──
         st.markdown("### Verdict distribution (latest review per draft)")
         col_v1, col_v2, col_v3 = st.columns(3)
         col_v1.metric("✅ Clean",   stats["clean"])
@@ -653,17 +654,14 @@ with tab_c:
 
         st.divider()
 
-        # ── Issue severity breakdown ──
         if stats["issue_severities"]:
             st.markdown("### All issues — severity breakdown")
             col_s1, col_s2 = st.columns(2)
             col_s1.metric("🔴 Hard issues", stats["issue_severities"].get("hard", 0))
             col_s2.metric("🟡 Soft issues", stats["issue_severities"].get("soft", 0))
             st.caption("Counts include duplicates across re-reviews.")
-
             st.divider()
 
-        # ── Top issue codes ──
         if stats["issue_codes"]:
             st.markdown("### Most common issue codes")
             st.caption(
@@ -674,11 +672,10 @@ with tab_c:
             for code, count in top:
                 st.markdown(f"- **`{code}`** — {count} occurrence{'s' if count != 1 else ''}")
 
-        # ── Drafts re-reviewed ──
         if stats["drafts_re_reviewed"] > 0:
             st.divider()
             st.markdown("### Drafts re-reviewed")
-            n = stats["drafts_re_reviewed"]
+            n    = stats["drafts_re_reviewed"]
             verb = "has" if n == 1 else "have"
             st.warning(
                 f"**{n} draft{'s' if n != 1 else ''}** {verb} been reviewed more than once. "
@@ -687,39 +684,37 @@ with tab_c:
                 icon="🔄",
             )
 
-        # ── Editor spend ──
         st.divider()
         st.markdown("### 💸 Editor spend")
 
         spend = _get_editor_spend()
 
         col_sp1, col_sp2, col_sp3, col_sp4 = st.columns(4)
-        col_sp1.metric("Today",      f"${spend['today_usd']:.4f}")
-        col_sp2.metric("This month", f"${spend['month_usd']:.4f}")
-        col_sp3.metric("All time",   f"${spend['alltime_usd']:.4f}")
+        col_sp1.metric("Today",      f"₹{spend['today_usd'] * 95:.2f}")
+        col_sp2.metric("This month", f"₹{spend['month_usd'] * 95:.2f}")
+        col_sp3.metric("All time",   f"₹{spend['alltime_usd'] * 95:.2f}")
         col_sp4.metric(
             "Total calls", spend["total_calls"],
             help="Total Editor API calls (success + failure)."
         )
 
         if spend["total_calls"] > 0:
-            avg_cost = spend["alltime_usd"] / spend["total_calls"]
-            st.caption(f"Average cost per call: **${avg_cost:.4f}**")
+            avg_inr = (spend["alltime_usd"] / spend["total_calls"]) * 95
+            st.caption(f"Average cost per call: **₹{avg_inr:.2f}**")
 
-        # ── Recent calls table ──
         if spend["recent_calls"]:
             with st.expander(f"Recent {len(spend['recent_calls'])} Editor calls"):
                 for call in spend["recent_calls"]:
-                    ts        = call.get("timestamp") or "—"
-                    cost_usd  = call.get("est_cost_usd") or 0.0
-                    in_tok    = call.get("input_tokens") or 0
-                    out_tok   = call.get("output_tokens") or 0
-                    notes     = (call.get("notes") or "")[:120]
-                    failed    = notes.startswith("FAILURE:") or notes.startswith("ERROR:")
+                    ts       = call.get("timestamp") or "—"
+                    cost_inr = (call.get("est_cost_usd") or 0.0) * 95
+                    in_tok   = call.get("input_tokens") or 0
+                    out_tok  = call.get("output_tokens") or 0
+                    notes    = (call.get("notes") or "")[:120]
+                    failed   = notes.startswith("FAILURE:") or notes.startswith("ERROR:")
                     status_icon = "❌" if failed else "✅"
 
                     st.markdown(
-                        f"{status_icon} `{ts}` · **${cost_usd:.4f}** · "
+                        f"{status_icon} `{ts}` · **₹{cost_inr:.2f}** · "
                         f"{in_tok:,} in / {out_tok:,} out tokens"
                     )
                     st.caption(notes if notes else "—")
