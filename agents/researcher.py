@@ -21,7 +21,6 @@ from __future__ import annotations
 import csv
 import json
 import re
-import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,7 +66,7 @@ GEOGRAPHY_OPTIONS: dict[str, str] = {
     ),
 }
 
-_DEFAULT_GEOGRAPHY = "Indian-heavy (3:2)"
+_DEFAULT_GEOGRAPHY    = "Indian-heavy (3:2)"
 _DEFAULT_MIN_RELEVANCE = 7
 
 
@@ -146,7 +145,7 @@ def research_topic(
 
     saved = _save_items(passing, product_id, topic)
 
-    total_rejected  = parse_result["model_rejected_count"] + extra_reject
+    total_rejected    = parse_result["model_rejected_count"] + extra_reject
     rejection_summary = parse_result["rejection_summary"]
     if extra_reject > 0:
         rejection_summary = (
@@ -239,6 +238,9 @@ Score each item against the Brand Context above:
 - **3–4**: Weak fit — generic, limited brand relevance
 - **1–2**: Off-brand
 
+**CRITICAL SCORING CAP — BCCI / IPL / NATIONAL TEAM CONTENT:**
+If an article is primarily about the Indian national cricket team, IPL franchises, BCCI governance, international cricket tournaments, or any professional/elite-level cricket (as opposed to grassroots, academy, or school-level cricket), assign a maximum relevance_score of 4. Do NOT exceed 4 for this category regardless of source quality or recency. This content is off-target for our grassroots academy director audience. Include it in rejected_count if it falls below the threshold.
+
 **Prefer**: peer-reviewed sports science, coach/academy contexts, Indian sources, Mumbai/Maharashtra angles
 **Avoid**: national team politics, supplement advice, generic Western fitness, celebrity drama, topics in the brand's "Topics We Avoid" list
 
@@ -252,21 +254,13 @@ Score each item against the Brand Context above:
 # ─── Response parsing ─────────────────────────────────────────────────────────
 
 def _parse_research_json(text: str) -> dict[str, Any]:
-    """Extract items and rejection metadata from the model's JSON response.
-
-    Handles two formats:
-      - Object: {"items": [...], "rejected_count": N, "rejection_summary": "..."}
-      - Array:  [...] (backward compat)
-
-    Returns {"raw_items": list, "model_rejected_count": int, "rejection_summary": str}
-    """
+    """Extract items and rejection metadata from the model's JSON response."""
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*\n?", "", text)
     text = re.sub(r"\n?```\s*$", "", text)
     text = text.strip()
 
     candidates = [text]
-    # Also try the first {...} or [...] span in case of leading/trailing prose
     obj_match = re.search(r"\{[\s\S]*\}", text)
     arr_match = re.search(r"\[[\s\S]*\]", text)
     if obj_match:
@@ -330,7 +324,6 @@ def _validate_urls_batch(items: list[dict]) -> list[dict]:
         item["url_status"] = status
         item["final_url"]  = check.get("final_url") or item.get("source_url", "")
 
-        # Downgrade broken/timeout items by 3 points so they sort behind valid ones
         if status in ("broken", "timeout"):
             original = item["relevance_score"]
             item["relevance_score"] = max(1, original - 3)
@@ -354,8 +347,8 @@ def _save_items(items: list[dict], product_id: int, topic: str) -> int:
             product_id,
             topic,
             item.get("source_url", ""),
-            title,                          # legacy title column
-            title,                          # source_title
+            title,
+            title,
             item.get("source_published_date"),
             item.get("summary", ""),
             item.get("relevance_score"),
@@ -424,7 +417,7 @@ def _log_api_call(
                 (ts, "researcher", topic, input_tokens, output_tokens,
                  web_searches, cost, notes),
             )
-    except sqlite3.OperationalError:
+    except Exception:
         pass  # api_log not yet present; CSV is the fallback
 
 
@@ -450,7 +443,7 @@ def get_month_spend_usd() -> float:
                 (f"{month}%",),
             ).fetchone()
         return float(row[0])
-    except sqlite3.OperationalError:
+    except Exception:
         return 0.0
 
 
@@ -461,5 +454,5 @@ def get_alltime_spend_usd() -> float:
                 "SELECT COALESCE(SUM(est_cost_usd), 0) FROM api_log"
             ).fetchone()
         return float(row[0])
-    except sqlite3.OperationalError:
+    except Exception:
         return 0.0

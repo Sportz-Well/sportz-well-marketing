@@ -3,7 +3,7 @@
 Every inner page calls init_page() immediately after st.set_page_config().
 
 Usage in any inner page:
-    from services.page_utils import init_page
+    from services.page_utils import init_page, format_cost_inr
 
     st.set_page_config(page_title="...", page_icon="...", layout="wide")
     init_page()
@@ -135,7 +135,6 @@ textarea[readonly] {
     background-color: #0d0d1a !important;
     border-color: #2a2a4a !important;
     color: #e8e8f0 !important;
-    /* Chrome overrides color on disabled — this forces it */
     -webkit-text-fill-color: #e8e8f0 !important;
     opacity: 1 !important;
 }
@@ -237,6 +236,22 @@ textarea[readonly] {
 </style>
 """
 
+
+# ─── Currency helper ──────────────────────────────────────────────────────────
+
+USD_TO_INR: int = 95
+
+
+def format_cost_inr(usd: float) -> str:
+    """Convert a USD API cost to a formatted INR display string.
+
+    Example: format_cost_inr(0.027) → '₹2.57'
+    Used by all pages that display API costs.
+    """
+    return f"₹{usd * USD_TO_INR:.2f}"
+
+
+# ─── Page initialiser ─────────────────────────────────────────────────────────
 
 def init_page() -> None:
     """Call immediately after st.set_page_config() on every inner page.

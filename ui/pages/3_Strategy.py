@@ -21,7 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import streamlit as st
 
-from services.page_utils import init_page
+from services.page_utils import init_page, format_cost_inr
 from services.brand_context import get_active_product
 from services.database import get_connection
 from agents.strategist import count_research_items, count_approved_angles, get_last_run_info
@@ -36,7 +36,8 @@ init_page()
 _PLATFORM_BADGE: dict[str, str] = {
     "instagram": "📸 Instagram",
     "facebook":  "📘 Facebook",
-    "both":      "📸📘 Both",
+    "linkedin":  "💼 LinkedIn",
+    "both":      "📸📘 Both (IG + FB)",
 }
 _PHASE_BADGE: dict[str, str] = {
     "phase_1":            "🟢 Phase 1",
@@ -166,23 +167,23 @@ def _get_pipeline_stats(product_id: int) -> dict:
 
     stats: dict = {
         "total": 0,
-        "by_status": {},
+        "by_status":   {},
         "by_platform": {},
-        "by_phase": {},
-        "by_cta": {},
+        "by_phase":    {},
+        "by_cta":      {},
     }
     for row in rows:
-        n          = row["n"]
-        status     = row["status"] or "proposed"
-        platform   = row["platform_fit"] or "both"
-        phase      = row["phase_tag"] or "phase_1"
-        cta        = row["cta_strength"] or "no_cta"
+        n        = row["n"]
+        status   = row["status"]   or "proposed"
+        platform = row["platform_fit"] or "both"
+        phase    = row["phase_tag"] or "phase_1"
+        cta      = row["cta_strength"] or "no_cta"
 
         stats["total"] += n
-        stats["by_status"][status]   = stats["by_status"].get(status, 0)   + n
+        stats["by_status"][status]     = stats["by_status"].get(status, 0)     + n
         stats["by_platform"][platform] = stats["by_platform"].get(platform, 0) + n
-        stats["by_phase"][phase]     = stats["by_phase"].get(phase, 0)     + n
-        stats["by_cta"][cta]         = stats["by_cta"].get(cta, 0)         + n
+        stats["by_phase"][phase]       = stats["by_phase"].get(phase, 0)       + n
+        stats["by_cta"][cta]           = stats["by_cta"].get(cta, 0)           + n
 
     return stats
 
@@ -190,7 +191,7 @@ def _get_pipeline_stats(product_id: int) -> dict:
 # ─── Page ─────────────────────────────────────────────────────────────────────
 
 st.title("🎯 Strategy")
-st.caption("Cluster research signals into actionable story angles for Instagram & Facebook.")
+st.caption("Cluster research signals into actionable story angles for LinkedIn, Instagram & Facebook.")
 
 product = get_active_product()
 if product is None:
@@ -206,16 +207,15 @@ tab_a, tab_b, tab_c = st.tabs(["Run Strategist", "Story Angles Library", "Pipeli
 
 with tab_a:
     st.info(
-        "**Cost heads-up:** Each strategy run costs approximately **$0.05 – $0.15** "
+        "**Cost heads-up:** Each strategy run costs approximately **₹5–₹15** "
         "(no web search — pure reasoning over your existing research library).",
         icon="💰",
     )
 
-    # Show a warning if the most recent run for this product failed
     last_run = get_last_run_info(product_id)
     if last_run and last_run["failed"]:
         st.warning(
-            f"⚠ Last run failed and cost **${last_run['cost']:.4f}** — "
+            f"⚠ Last run failed and cost **{format_cost_inr(last_run['cost'])}** — "
             "see `data/strategist_failed_responses.log` for the full raw response.",
             icon="⚠️",
         )
@@ -290,7 +290,7 @@ with tab_a:
             st.success(
                 f"Done — **{themes_n} theme{'s' if themes_n != 1 else ''}** identified, "
                 f"**{angles_n} angle{'s' if angles_n != 1 else ''}** proposed. "
-                f"Estimated cost: **${cost:.4f}**"
+                f"Cost: **{format_cost_inr(cost)}**"
             )
             for w in warnings:
                 st.warning(w, icon="⚠️")
@@ -316,11 +316,11 @@ with tab_b:
         col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns([2, 2, 2, 2, 2])
 
         with col_f1:
-            status_opts = ["All", "Proposed", "Approved", "Rejected", "Edited"]
+            status_opts   = ["All", "Proposed", "Approved", "Rejected", "Edited"]
             status_filter = st.selectbox("Status", status_opts, key="lib_status")
 
         with col_f2:
-            platform_opts = ["All", "Instagram", "Facebook", "Both"]
+            platform_opts   = ["All", "Instagram", "Facebook", "LinkedIn", "Both"]
             platform_filter = st.selectbox("Platform", platform_opts, key="lib_platform")
 
         with col_f3:
@@ -329,7 +329,7 @@ with tab_b:
             phase_filter = st.selectbox("Phase tag", phase_opts, key="lib_phase")
 
         with col_f4:
-            all_funnel = sorted({a["funnel_stage"] for a in all_angles if a.get("funnel_stage")})
+            all_funnel  = sorted({a["funnel_stage"] for a in all_angles if a.get("funnel_stage")})
             funnel_opts = ["All"] + all_funnel
             funnel_filter = st.selectbox("Funnel stage", funnel_opts, key="lib_funnel")
 
@@ -344,9 +344,16 @@ with tab_b:
         filtered = all_angles
         if status_filter != "All":
             filtered = [a for a in filtered if a["status"] == status_filter.lower()]
+
         if platform_filter != "All":
             pf_val = platform_filter.lower()
-            filtered = [a for a in filtered if a.get("platform_fit") in (pf_val, "both")]
+            if pf_val in ("instagram", "facebook"):
+                # "both" historically means IG + FB — include it for these two
+                filtered = [a for a in filtered if a.get("platform_fit") in (pf_val, "both")]
+            else:
+                # linkedin and both: exact match only
+                filtered = [a for a in filtered if a.get("platform_fit") == pf_val]
+
         if phase_filter != "All":
             filtered = [a for a in filtered if a.get("phase_tag") == phase_filter]
         if funnel_filter != "All":
@@ -371,7 +378,10 @@ with tab_b:
             st.info("No angles match the current filters.", icon="🔍")
 
         for theme_name, angles in theme_groups.items():
-            with st.expander(f"**{theme_name}** — {len(angles)} angle{'s' if len(angles) != 1 else ''}", expanded=True):
+            with st.expander(
+                f"**{theme_name}** — {len(angles)} angle{'s' if len(angles) != 1 else ''}",
+                expanded=True,
+            ):
                 for angle in angles:
                     angle_id = angle["id"]
                     edit_key = f"editing_{angle_id}"
@@ -405,7 +415,6 @@ with tab_b:
                         f"{_CTA_BADGE.get(cta, cta)}"
                     )
 
-                    # Sources and editorial brief expanders
                     col_src, col_brief = st.columns(2)
 
                     with col_src:
@@ -494,7 +503,7 @@ with tab_c:
             icon="ℹ️",
         )
     else:
-        total = stats["total"]
+        total       = stats["total"]
         by_status   = stats["by_status"]
         by_platform = stats["by_platform"]
         by_phase    = stats["by_phase"]
@@ -506,12 +515,11 @@ with tab_c:
         c1.metric("Total",    total)
         c2.metric("Proposed", by_status.get("proposed", 0))
         c3.metric("Approved", by_status.get("approved", 0))
-        c4.metric("Edited",   by_status.get("edited", 0))
+        c4.metric("Edited",   by_status.get("edited",   0))
         c5.metric("Rejected", by_status.get("rejected", 0))
 
         st.divider()
 
-        # ── Approved angles ready for Copywriter ──
         approved = by_status.get("approved", 0)
         if approved:
             st.success(
@@ -520,12 +528,13 @@ with tab_c:
                 icon="✅",
             )
 
-        # ── Platform breakdown (approved + edited only) ──
-        st.markdown("### Approved & Edited — platform breakdown")
-        col_p1, col_p2, col_p3 = st.columns(3)
-        col_p1.metric("Instagram only", by_platform.get("instagram", 0))
-        col_p2.metric("Facebook only",  by_platform.get("facebook", 0))
-        col_p3.metric("Both platforms", by_platform.get("both", 0))
+        # ── Platform breakdown ──
+        st.markdown("### Platform breakdown")
+        col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+        col_p1.metric("💼 LinkedIn",      by_platform.get("linkedin",  0))
+        col_p2.metric("📸 Instagram",     by_platform.get("instagram", 0))
+        col_p3.metric("📘 Facebook",      by_platform.get("facebook",  0))
+        col_p4.metric("Both (IG + FB)",   by_platform.get("both",      0))
 
         st.divider()
 
@@ -537,11 +546,11 @@ with tab_c:
         )
         phase_order = ["phase_1", "founder_credibility", "evergreen", "phase_2_hint", "phase_3_hint"]
         phase_labels = {
-            "phase_1": "Phase 1",
+            "phase_1":             "Phase 1",
             "founder_credibility": "Founder Cred",
-            "evergreen": "Evergreen",
-            "phase_2_hint": "Phase 2 Hint ⚠️",
-            "phase_3_hint": "Phase 3 Hint ⚠️",
+            "evergreen":           "Evergreen",
+            "phase_2_hint":        "Phase 2 Hint ⚠️",
+            "phase_3_hint":        "Phase 3 Hint ⚠️",
         }
         ph_cols = st.columns(len(phase_order))
         for col, key in zip(ph_cols, phase_order):
@@ -573,7 +582,7 @@ with tab_c:
         col_c1, col_c2, col_c3 = st.columns(3)
         hard_n = by_cta.get("hard_cta", 0)
         soft_n = by_cta.get("soft_cta", 0)
-        none_n = by_cta.get("no_cta", 0)
+        none_n = by_cta.get("no_cta",   0)
 
         hard_pct = round(100 * hard_n / total) if total else 0
         soft_pct = round(100 * soft_n / total) if total else 0
