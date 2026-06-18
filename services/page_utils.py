@@ -3,7 +3,7 @@
 Every inner page calls init_page() immediately after st.set_page_config().
 
 Usage in any inner page:
-    from services.page_utils import init_page, format_cost_inr
+    
 
     st.set_page_config(page_title="...", page_icon="...", layout="wide")
     init_page()
