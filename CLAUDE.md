@@ -1,311 +1,364 @@
 # CLAUDE.md
-### Source of truth for all Claude sessions working on this codebase.
-### Last updated: 2026-06-07
-### Read this fully before doing anything.
+## Source of truth for anyone (including future Claude sessions) working on this codebase.
+## Read this first. Always.
 
 ---
 
-## Who You Are Working With
+## Product Vision — Three Phases
 
-**Jitendra Sonu Jagdale** — non-technical founder, Mumbai cricketer, MCA Match Observer,
-Shardashram alumnus. Building a billion-dollar company. Decisive, moves fast, respects
-straight talk. Does NOT want to be coddled. If an idea is weak, say so directly.
+**Phase 1 (COMPLETE + IN PRODUCTION):**
+Internal AI-powered social media content pipeline for SWPI (Sportz-Well Performance
+Intelligence). Single client, deployed on Streamlit Cloud, founder operates manually.
+In production since June 5, 2026. First LinkedIn posts live.
 
-**Your role in every session:** CTO co-founder, friend, and mentor.
-- Be patient. Give step-by-step instructions for every task.
-- Never sugarcoat. Test everything until bulletproof.
-- Maximize every chat — use tokens carefully, no padding.
-- Jitendra is non-technical. Never assume he knows what a command does.
+**Phase 2 (after 2026-06-19):**
+Onboard external clients. First candidate: Saviour Rescuevator (fire evacuation lifts).
+Schema supports multi-tenancy — add rows, don't fork code.
+Do NOT start until SWPI has been in production for at least 2 weeks (gate: June 19, 2026).
 
----
-
-## Working Rules (non-negotiable, every session)
-
-1. **Plan-and-paste mode:** Claude plans, Jitendra runs commands in PowerShell on Windows.
-2. **Any changes to existing files:** Recode the WHOLE file as a downloadable artifact.
-   Never copy-paste code inline in chat.
-3. **New files:** Label clearly "NEW FILE", deliver whole file as artifact.
-4. **One task at a time.** No scope creep.
-5. **Two files at a time maximum** (only break for tightly coupled files).
-6. **Always ask for the real current file** before editing. Never reconstruct from memory.
-7. **Commit message required** after every file save.
-8. **End of every session:** Give 2 options for next steps, recommend one with reason.
-9. **Always state full file path** when delivering a file.
-   Format: C:\Users\Dell\sportz-well-marketing\path\to\file.py
-10. **No PDF files** — only .md files for documents.
-11. **Windows-specific awareness:** Windows-compatible code and PowerShell commands only.
-12. **Safety-first on data writes:** Show full contents before any data-writing run.
-13. **SQL discipline:** Parameterized queries (? placeholders) always. Never string concatenation.
+**Phase 3 (future):**
+SaaS product. Meta Graph API, multi-user auth, billing. Not before Phase 2 stable.
 
 ---
 
 ## The Product
 
-**Name:** Sportz-Well Marketing Studio
-**Live URL:** https://swpi-marketing.streamlit.app
-**GitHub:** https://github.com/Sportz-Well/sportz-well-marketing (public)
-**Local run:** .venv\Scripts\activate then streamlit run ui/app.py
-**Project root:** C:\Users\Dell\sportz-well-marketing
+An AI-powered social media content pipeline for SWPI — a monthly AI-driven player
+development platform for grassroots cricket academies (U10-U17 players in Indian cities).
 
-An AI-powered social media content pipeline for SWPI — a grassroots cricket player
-development product targeting academy directors, coaches, and parents of U10-U17
-players in India.
-
-**Posting model:** App does NOT post automatically. Generates drafts, user
-copy-pastes into Meta Business Suite (FB/IG) and LinkedIn directly.
+- **Primary buyers:** Academy directors and head coaches (B2B institutional sale)
+- **CTA:** Book a demo at sportz-well.com
+- **Live URL:** https://swpi-marketing.streamlit.app
+- **GitHub:** https://github.com/Sportz-Well/sportz-well-marketing (public)
+- **V1 posting model:** App does NOT post automatically. Drafts → copy-paste into
+  Meta Business Suite (FB/IG) and LinkedIn directly.
+- **LinkedIn rule:** Post body contains NO SWPI mention. First comment posted
+  immediately after publishing contains SWPI product mention + sportz-well.com.
+- **V2 (later):** Direct API posting via Meta Graph API after Meta App Review.
 
 ---
 
-## Tech Stack
+## Stack
 
-- Language: Python 3.11+
-- UI: Streamlit
-- Database: PostgreSQL on Supabase (kkepmacwjfuoczbbfroi — Seoul)
-- AI: Anthropic SDK, model claude-sonnet-4-6 (set in anthropic_client.py only)
-- Environment: Windows, PowerShell, VS Code, .venv
-- Deployed: Streamlit Community Cloud (free tier, auto-deploys on push to master)
-- API key: Streamlit Cloud Secrets → ANTHROPIC_API_KEY
-- DATABASE_URL: Streamlit Cloud Secrets → DATABASE_URL
+- **Language:** Python 3.11+
+- **UI:** Streamlit (non-technical founder — fastest way to ship a working UI)
+- **Database:** PostgreSQL on Supabase (project: kkepmacwjfuoczbbfroi — Seoul region)
+- **AI:** Anthropic Python SDK, wrapped in `services/anthropic_client.py`
+- **Model:** `claude-sonnet-4-6` — Claude Sonnet 4.6 by Anthropic
+- **Web search:** Built-in Anthropic web search tool (used by Researcher agent only)
+- **Research cost:** ~₹30 per topic (6 items) | ~₹60/week | ~₹240/month
+- **Environment:** Windows, PowerShell, VS Code, virtual env at `.venv`
+- **Run command:** `streamlit run ui/app.py` from project root
+- **Deploy:** Push to master branch → Streamlit Cloud auto-deploys in ~2 minutes
+- **Secrets:** ANTHROPIC_API_KEY and DATABASE_URL in Streamlit Cloud Secrets
 
 ---
 
 ## Critical API Conventions
 
-ask_with_usage() takes system_prompt and user_prompt (not system/user).
-Returns dict: text, input_tokens, output_tokens, web_searches, error.
-NEVER unpack as a tuple.
+`ask_with_usage()` in `services/anthropic_client.py`:
+- Takes: `system_prompt` (not `system`) and `user_prompt` (not `user`)
+- Returns: dict with keys `text`, `input_tokens`, `output_tokens`, `web_searches`, `error`
+- NEVER unpack as a tuple — this bug has been hit before
 
-get_active_product() returns product_id (NOT id) and product_name (NOT name).
+`get_active_product()` in `services/brand_context.py`:
+- Returns dict with `product_id` (NOT `id`) and `product_name` (NOT `name`)
+- Every page and agent must use these exact keys
 
-PostgreSQL SQL rules (all agents must follow):
-- NEVER INSERT OR REPLACE INTO → plain INSERT INTO
-- NEVER datetime('now') → datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-- NEVER sqlite3.OperationalError → Exception
-- ? placeholders auto-convert to %s in services/database.py
+**PostgreSQL rules (all agents):**
+- No `INSERT OR REPLACE INTO` → use `INSERT INTO ... ON CONFLICT ... DO UPDATE`
+- No `datetime('now')` → use `datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")`
+- No `import sqlite3` anywhere → use `except Exception:` not `except sqlite3.OperationalError:`
+- `?` placeholders auto-convert to `%s` in `services/database.py`
 
----
-
-## Three-Phase Vision
-
-Phase 1 (COMPLETE — production started 2026-06-05):
-Internal SWPI tool. Single client. First LinkedIn post live. 71 impressions day 1.
-
-Phase 2 (earliest start: 2026-06-19 — after 2 weeks production use):
-- Onboard SW-Travel (Gen Z travel brand, Instagram-first)
-- Potentially onboard Saviour Rescuevator (LinkedIn-only, fire evacuation lifts)
-- Blogs + Newsletter module
-- Prompt caching (40-60% cost saving)
-
-Phase 3 (future):
-Meta Graph API direct posting, X/Twitter, multi-user auth + billing, SaaS packaging.
+**INR display rule (all pages):**
+- Import `format_cost_inr` from `services/page_utils`
+- `USD_TO_INR = 95` constant lives in `services/page_utils.py`
+- Never display raw USD to the user — always convert via `format_cost_inr(usd)`
 
 ---
 
-## Architecture
+## Architecture — Seven Agents + Scheduler
 
-One app, one PostgreSQL DB (Supabase), one UI. Seven modules coordinate via DB:
+One app, one database, one UI. Seven modules coordinate via database rows:
 
-  Researcher   → research_items table
-  Strategist   → story_angles table
-  Copywriter   → drafts table
-  Editor       → editor_reviews table
-  Media        → media_briefs table (BEING REWORKED)
-  Scheduler    → schedule table
-  Orchestrator → calls all agents, no own table
+```
+Researcher   → research_items table
+Strategist   → story_angles table
+Copywriter   → drafts table
+Editor       → editor_reviews table
+Media        → media_briefs table (ZERO API COST — template-based)
+Scheduler    → schedule table
+Orchestrator → calls all agents, no own table
+```
+
+**Key principle:** No hardcoded brand content anywhere in agent code. Everything
+brand-specific lives in the `brand_profiles` table, keyed by client.
 
 ---
 
-## Repository Layout (current state 2026-06-07)
+## Repository Layout (current state as of 2026-06-18)
 
+```
 agents/
-  researcher.py       PostgreSQL compatible
-  strategist.py       PostgreSQL compatible
-  copywriter.py       PostgreSQL compatible
-  editor.py           NOT tested on PostgreSQL yet
-  media.py            BEING REWORKED (photography briefs → AI image prompts)
-  scheduler.py        NOT tested on PostgreSQL yet
+  researcher.py    ✅ BCCI/IPL hard cap at 4/10; sqlite3 refs removed
+  strategist.py    ✅
+  copywriter.py    ✅ delete_draft_permanently + get_editor_review_status present
+  editor.py        ✅ sqlite3 refs removed
+  media.py         ✅ ZERO COST — template-based, no API calls
+  scheduler.py     ✅
 db/
-  schema.sql          PostgreSQL syntax
-  init_db.py          PostgreSQL
+  schema.sql       ✅ canonical schema
+  init_db.py       ✅ creates DB, auto-migrates
 ui/
-  app.py              dark theme home page
+  app.py           ✅ premium dark theme (Rajdhani, #080810, #f5a623)
   pages/
-    1_Brand_Brain.py  PostgreSQL + dark theme
-    2_Research.py     dark theme
-    3_Strategy.py     dark theme (subtitle still says Instagram & Facebook — fix pending)
-    4_Drafts.py       readable draft body (styled div replaces disabled textarea)
-    5_Editor.py       dark theme
-    6_Media.py        BEING REWORKED
-    7_Calendar.py     dark theme
-    8_Orchestrator.py dark theme
+    1_Brand_Brain.py    ✅
+    2_Research.py       ⚠️  cost display still shows USD — fix pending
+    3_Strategy.py       ✅ LinkedIn added throughout; INR costs; subtitle fixed
+    4_Drafts.py         ✅ 2-tab week-native redesign (Weekly Drafts + Generate)
+    5_Editor.py         ✅ LinkedIn filter; posted drafts hidden; sqlite3 removed
+    6_Media.py          ✅ zero-cost template prompts
+    7_Calendar.py       ✅
+    8_Orchestrator.py   ✅
 services/
-  anthropic_client.py
-  database.py         PostgreSQL psycopg2 wrapper
-  brand_context.py
-  url_validator.py
-  source_preferences.py
-  page_utils.py       dark theme CSS + cached init_db
+  anthropic_client.py   ✅
+  database.py           ✅ PostgreSQL wrapper with ? → %s auto-conversion
+  brand_context.py      ✅
+  url_validator.py      ✅
+  source_preferences.py ✅
+  page_utils.py         ✅ USD_TO_INR=95 + format_cost_inr() helper added
 tests/
-  test_editor_parser.py   18 tests passing
+  test_editor_parser.py ✅ 18 smoke tests, all passing
+```
 
 ---
 
-## Platform Word Count Table
+## What Was Done — Session 2026-06-18
 
-Platform    | Format       | Min | Max
-Instagram   | single_image | 80  | 130
-Instagram   | carousel     | 80  | 130
-Instagram   | reel_script  | 50  | 100
-Facebook    | single_image | 60  | 120
-Facebook    | text_post    | 60  | 150
-Facebook    | carousel     | 60  | 120
-LinkedIn    | single_image | 150 | 300
-LinkedIn    | text_post    | 100 | 250
+### 1. Editor page (5_Editor.py + agents/editor.py)
+- LinkedIn added to `_PLATFORM_BADGE` dict and platform filter dropdown
+- Posted drafts now hidden by default — "Show posted drafts" checkbox to reveal
+- `import sqlite3` removed from both files
+- All `except sqlite3.OperationalError` → `except Exception` (3 places in each)
+- All cost display switched to ₹ via `format_cost_inr()`
 
----
+### 2. Drafts page — complete redesign (4_Drafts.py)
+- **5 tabs → 2 tabs only:** Weekly Drafts + Generate
+- Week picker dropdown (defaults to current week, navigate backwards)
+- Platform filter: All / LinkedIn / Facebook / Instagram
+- Posted drafts invisible automatically (no toggle needed)
+- Rejected drafts invisible automatically
+- Single unified card per draft — status badge adapts to state
+- Status badges: 📅 Scheduled | ✅ Approved | 🟢 Editor Clean | 🚩 Needs Fix | ⏳ Not Reviewed
+- Action buttons adapt to status (Approve/Reject/Edit as appropriate)
+- Generate tab unchanged
 
-## Media Studio — Rework (NEXT TASK)
+### 3. page_utils.py — INR helper
+- `USD_TO_INR: int = 95` constant added
+- `format_cost_inr(usd: float) -> str` helper added
+- Returns `₹2.57` style strings for all cost display
 
-OLD (useless): 500-word photography essays. Nobody reads them.
-NEW (useful): AI image prompt generator for Midjourney / Adobe Firefly / Runway.
+### 4. Strategy page (3_Strategy.py)
+- Subtitle updated: "LinkedIn, Instagram & Facebook"
+- `_PLATFORM_BADGE` dict: LinkedIn added
+- Platform filter dropdown: LinkedIn added
+- Filter logic: LinkedIn = exact match; Instagram/Facebook = includes "both"
+- Pipeline Overview: 4-column platform breakdown including LinkedIn
+- All USD cost displays → `format_cost_inr()`
+- Import: `from services.page_utils import init_page, format_cost_inr`
 
-Three prompt formats per draft, one copy button each:
+### 5. Researcher agent (agents/researcher.py)
+- `import sqlite3` removed
+- BCCI scoring cap added to system prompt:
+  **IPL / national team / BCCI content hard-capped at relevance_score 4**
+  regardless of source quality or recency
+- All `except sqlite3.OperationalError` → `except Exception`
 
-Midjourney: short technical prompt with aspect ratio and style flags
-  e.g. Cricket coach at boundary, clipboard in hand, watching U-14 batter, golden hour,
-  outdoor Mumbai cricket ground, photorealistic, Canon 85mm --ar 4:5 --style raw
-
-Adobe Firefly: natural language optimised for Firefly
-  e.g. Professional photo, cricket coach observing young batter at practice nets,
-  golden hour, documentary style, outdoor cricket academy Mumbai
-
-Runway (video): short motion description
-  e.g. Coach walks along boundary, pauses to observe U-14 batter at nets,
-  slow camera pan, golden hour, 5 seconds
-
-Files to rework: agents/media.py + ui/pages/6_Media.py
-Both files were pasted in the previous chat session and are in HANDOVER_2026_06_07.md
-
----
-
-## Current Production Status (2026-06-07)
-
-First Post Live — LinkedIn 5 Jun 2026
-Post: "A coach spends 90 minutes with a U-14 batter..." (V2, Are Parents informed)
-Analytics day 1: 71 impressions, 45 reached, 0 likes, 0 comments
-Assessment: Expected cold-start. Right audience (36% senior). Mahindra Finance profile visit.
-Fix for next post: message 3-4 connections before posting, ask for first-hour comment.
-
-LinkedIn Posting Schedule:
-- Fri 5 Jun  — "A coach spends 90 minutes..." V2         LIVE
-- Mon 8 Jun  — "36% of parents..." V1                    Scheduled
-- Thu 11 Jun — "Three stages arc..." V1                  Scheduled
-- Week 15 Jun — "Coach with 20 years..." V1              To schedule
-- Week 15 Jun — "Your academy runs 40 players..." V2     To schedule
-- Week 22 Jun — "A parent stops responding..." V2        To schedule
-
-Other approved drafts pending scheduling:
-- Facebook: Cricket Isn't a Hobby V1+V2, Rs5000 a Month V1+V2
-- Instagram: U14 Pathway V1+V2 (clean), Cricket Isn't a Hobby V1+V2 (still flagged)
-
-LinkedIn Posting Strategy:
-- Post body: NO SWPI mention — thought leadership only
-- First comment immediately after: soft SWPI mention + sportz-well.com link
-- Message 3-4 connections personally before posting
-- Text-only posts — no image needed
-- NEVER mention the gap between posts
+### 6. Content — week of Jun 16–21
+- 6 posts scheduled in Calendar across LinkedIn, Facebook, Instagram
+- 2 LinkedIn posts from prior week marked as Posted (Jun 8 + Jun 12)
+- Research run: 2 new topics completed (12 new items in library)
+  - "AI and biochemical analysis in sports performance India" (6 items)
+  - "Data driven coaching grassroots sports India academy" (6 items)
 
 ---
 
-## Features Backlog (priority order)
+## Pending Tasks — Priority Order
 
-IMMEDIATE — next session:
-1. Media Studio rework — photography briefs → AI image prompts. ~2 hours.
-   Both current files ready in handover.
+### 🔴 DO FIRST in next session
 
-HIGH — this week:
-2. Test editor.py and scheduler.py on PostgreSQL (fix as errors appear)
-3. INR display — add USD_TO_INR = 95.42 to page_utils.py, update all cost displays
-4. Strategist subtitle — 3_Strategy.py still says Instagram & Facebook. Add LinkedIn.
-5. BCCI scoring fix — Researcher scores BCCI/IPL content too high. Cap at 4/10.
-6. Fix Instagram drafts #7 and #8 — still flagged.
+**1. Strategy → Generate cycle for week of Jun 23 (LinkedIn only)**
+- Research library has 20 items ready
+- Run Strategy with editorial focus: "LinkedIn only — B2B professional angles for academy directors and head coaches"
+- Approve 3-4 LinkedIn angles only
+- Generate drafts → Editor → Approve → Schedule for Jun 23 onwards
 
-MEDIUM — before Phase 2:
-7. Platform distribution control in Strategist (3 LinkedIn, 3 Instagram, 2 Facebook)
-8. Copy Full Post button in Drafts Library (one-click for WhatsApp sharing)
-9. WhatsApp reminder 30 mins before scheduled post (Twilio)
+**2. Fix Instagram drafts #7 and #8**
+- Both flagged CAPTION_TOO_SHORT (~62–66 words, needs 80–130)
+- Fix in app: Drafts → Weekly Drafts → find them → Edit → add 2 sentences → Save
+- Go to Editor → Re-review → confirm Clean
 
-NEW FEATURES — Phase 2:
-10. AI Image Generation (call Midjourney/Firefly API directly from app)
-11. Performance Loop (log post metrics, feed back to Strategist — THE PRODUCT MOAT)
-12. One-Click Repurpose (LinkedIn → Instagram + Facebook in one click)
-13. Brand Voice Trainer (paste 5 own posts → extract voice → feed to Copywriter)
+### 🟡 NEXT CODE SESSION
 
----
+**3. Delete button on Drafts weekly cards (4_Drafts.py)**
+- 🗑️ button on each card with inline "Are you sure?" confirmation
+- Permanently deletes draft + cascades to editor_reviews, media_briefs, schedule
+- Calls existing `delete_draft_permanently(draft_id)` in copywriter.py
+- Jitendra's requirement: individual delete per card, not bulk
 
-## External Client Pipeline
+**4. Research page INR display (2_Research.py)**
+- Still shows `$0.31` — needs `format_cost_inr()` throughout
+- Quick fix, 1 file, ~15 minutes
 
-Saviour Rescuevator (inquiry received 2026-06-05):
-- Fire evacuation lifts for high-rise buildings
-- Website: saviourrescuevator.com
-- LinkedIn only
-- Buyer: architects, developers, safety consultants, facility managers
-- Do NOT onboard before 2026-06-19 (two-week production rule)
-- Proposed: LinkedIn Starter Rs18,000/month + Rs8,000 setup = Rs26,000 first invoice
+### 🔵 AFTER JUNE 19 GATE
 
-Pricing Structure:
-Package               | Platforms    | Posts/month | Price
-Starter LinkedIn      | LinkedIn     | 12          | Rs18,000/month
-Starter Instagram     | Instagram    | 12          | Rs15,000/month
-Starter Facebook      | Facebook     | 8           | Rs12,000/month
-Growth LinkedIn+IG    | 2 platforms  | 20          | Rs28,000/month
-Growth LinkedIn+FB    | 2 platforms  | 18          | Rs25,000/month
-Growth IG+FB          | 2 platforms  | 18          | Rs20,000/month
-Full Suite            | All 3        | 28          | Rs38,000/month
-Setup fee (all)       | One-time     |             | Rs8,000
+**5. Sample SWPI academy report + LinkedIn showcase post**
+- SWPI's product is a monthly player development report for academies
+- A sample report posted on LinkedIn is the strongest sales tool
+- Shows academy directors exactly what they'd get
+- Requires: design work + LinkedIn post draft
+- Not started yet
 
-Minimum: 3 months. Advance monthly. 30-day exit after month 3.
+**6. External client onboarding (Saviour Rescuevator)**
+- Fire safety / evacuation lifts industry
+- Pricing: Starter ₹12,000–18,000/month, Full Suite ₹38,000/month, ₹8,000 one-time setup
+- Gated: no earlier than June 19, 2026
+- Process: add new product row in Brand Brain → fill brand voice → run agents
+
+**7. Newsletter and Blog pages (Phase 2)**
+- Weekly newsletter + fortnightly blog
+- Deferred until 2 weeks of stable production use
+- New agents: blog_writer.py, newsletter_writer.py
 
 ---
 
-## Budget (all-time as of 2026-06-07)
+## Content Strategy Rules (non-negotiable)
 
-Session                                    | USD    | INR
-2026-05-18 to 2026-05-23 (full build)     | $1.54  | Rs147
-2026-05-31 (LinkedIn feature)             | $0.50  | Rs48
-2026-06-03 (PostgreSQL + dark theme)      | $2.63  | Rs251
-2026-06-03 (First production run)         | $1.64  | Rs156
-2026-06-05 (Fixes + scheduling + post 1) | $0.20  | Rs19
-TOTAL ALL-TIME                            | $6.51  | Rs621
+**LinkedIn posting rule:**
+Post body = NO SWPI mention (thought leadership only).
+First comment posted immediately after = SWPI product mention + sportz-well.com.
 
-Weekly running cost: ~Rs200/week (~Rs800/month)
-Cost per published post: ~Rs27
+**Platform audiences:**
+- LinkedIn: academy directors, head coaches, B2B operators
+- Facebook: parents 30–50, decision-makers for their child's academy
+- Instagram: young cricketers U10–U17 and emotionally invested parents
+
+**BCCI/IPL/national team:** Hard-capped at 4/10 in Researcher. Off-target for grassroots.
+
+**Coaches are primary customer:** Content must never alienate academy directors or
+coaches. Any angle that frames coaches negatively must be rewritten.
+
+**Institutional framing:** Shardashram/Achrekar/Tendulkar referenced as philosophy
+and heritage only. Never as personal credentials or lineage claims.
+
+**No duplicate openers:** Instagram + Facebook angles cannot share identical hook lines.
+
+---
+
+## Weekly Content Rhythm (locked in)
+
+| Day | Task |
+|-----|------|
+| Sunday | Research 2 new topics |
+| Monday | Strategy → approve angles → Generate drafts |
+| Tuesday | Editor review → fix flagged → Approve |
+| Tuesday–Saturday | Post from Calendar → Mark Posted immediately after |
 
 ---
 
 ## DB Tables
 
-Table           | Owner
-organizations   | Brand Brain
-products        | Brand Brain
-product_phases  | Brand Brain
-brand_profiles  | Brand Brain
-partner_brands  | Brand Brain
-content_rules   | Brand Brain
-research_items  | Researcher
-api_log         | All agents
-story_angles    | Strategist
-drafts          | Copywriter
-editor_reviews  | Editor
-media_briefs    | Media
-schedule        | Scheduler
+| Table           | Owner        |
+|----------------|--------------|
+| organizations   | Brand Brain  |
+| products        | Brand Brain  |
+| product_phases  | Brand Brain  |
+| brand_profiles  | Brand Brain  |
+| partner_brands  | Brand Brain  |
+| content_rules   | Brand Brain  |
+| research_items  | Researcher   |
+| api_log         | All agents   |
+| story_angles    | Strategist   |
+| drafts          | Copywriter   |
+| editor_reviews  | Editor       |
+| media_briefs    | Media        |
+| schedule        | Scheduler    |
 
 ---
 
-## Known Issues
+## Media Agent — Zero Cost (permanent)
 
-- editor.py and scheduler.py: NOT tested on PostgreSQL. Fix as errors appear.
-- Strategist intermittent JSON parse failure: re-run always fixes it.
-- Instagram drafts #7 and #8: flagged, not fixed yet.
-- Strategy page subtitle: still says Instagram & Facebook. Fix pending.
-- Orphan editor_reviews rows: harmless, cleanup later.
+The Media agent makes ZERO API calls. Template function wraps
+`visual_photography_note` (or `image_brief` as fallback) with tool-specific
+style and platform aspect ratio. Instant. Free.
+
+Platform aspect ratios auto-injected:
+- Instagram → Firefly: 4:5 | ChatGPT: Tall | Gemini: Portrait
+- Facebook  → Firefly: 1:1 | ChatGPT: Square | Gemini: Square
+- LinkedIn  → Firefly: 16:9 | ChatGPT: Widescreen | Gemini: Landscape
+
+Image generation tools (confirmed subscriptions):
+Adobe Firefly ✅ | ChatGPT Free/DALL-E 3 ✅ | Google Gemini Pro ✅
+Midjourney ❌ | Runway ❌
+
+---
+
+## Budget (all-time as of 2026-06-18)
+
+| Session | Cost |
+|---------|------|
+| All sessions to 2026-05-23 | ~$2.00 |
+| 2026-06-12 (Drafts redesign) | ~$0.00 |
+| 2026-06-14 (LinkedIn + fixes) | ~$0.00 |
+| 2026-06-18 (Today — code fixes) | ~$0.00 |
+| 2026-06-18 (Research — 2 topics) | ~$0.63 |
+| **Total all-time** | **~$7.34 (~₹697)** |
+
+Weekly running cost: ~₹200/week (~₹800/month)
+Cost per published post: ~₹27
+
+---
+
+## Known Issues / Watch List
+
+- **2_Research.py:** Cost display still shows USD — fix pending (next session)
+- **Instagram drafts #7 and #8:** Still flagged CAPTION_TOO_SHORT — fix in app
+- **Strategist intermittent JSON parse failure:** Large research libraries (20+ items).
+  Workaround: re-run — succeeds on retry. Fix before Phase 2.
+- **Circular import risk:** Never import `page_utils` from within `page_utils` itself.
+  Hit once on 2026-06-18 — fixed via GitHub.com direct edit.
+
+---
+
+## Deployment Details
+
+- **Live URL:** https://swpi-marketing.streamlit.app
+- **Platform:** Streamlit Community Cloud (free tier)
+- **GitHub:** https://github.com/Sportz-Well/sportz-well-marketing (public)
+- **API key:** Stored in Streamlit Cloud Secrets (never in code or GitHub)
+- **Auto-deploy:** Push to `master` → live in ~2 minutes
+- **Sleep:** App sleeps after inactivity, wakes in 15–30 seconds
+- **Emergency fix:** Edit files directly on GitHub.com when circular import or
+  crash prevents the app loading locally
+
+---
+
+## Working Rules for Future Claude Sessions
+
+1. Plan-and-paste mode: Claude plans, Jitendra runs in PowerShell on Windows.
+2. Changes to existing files: Recode WHOLE file as downloadable artifact. Never inline.
+3. New files: Label "NEW FILE", deliver whole file as artifact.
+4. One task at a time. No scope creep.
+5. Two files max per session (tightly coupled exception only).
+6. Always ask for real current file before editing. Never reconstruct from memory.
+7. Commit message required after every file save.
+8. End every session: give 2 options for next steps + recommendation with reason.
+9. Always state full file path: `C:\Users\Dell\sportz-well-marketing\path\to\file.py`
+10. No PDF files — .md only for documents.
+11. Windows PowerShell commands only.
+12. Parameterised SQL always (`?` placeholders). Never string concatenation.
+13. Confirm features before building. No surprises.
+14. After saving files, always verify with `Get-Content ... | Select-Object -Last 20`
+    before committing. "Nothing to commit" means the file wasn't saved to the right path.
+15. If app crashes with circular import: fix directly on GitHub.com, not locally.
