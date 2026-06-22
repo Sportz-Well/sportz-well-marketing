@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import streamlit as st
 
-from services.page_utils import init_page
+from services.page_utils import init_page, format_cost_inr
 from services.brand_context import get_active_product
 from services.database import get_connection
 from agents.researcher import GEOGRAPHY_OPTIONS
@@ -72,7 +72,7 @@ def _month_spend() -> float:
     try:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT COALESCE(SUM(est_cost_usd), 0) FROM api_log WHERE timestamp LIKE ?",
+                "SELECT COALESCE(SUM(est_cost_usd), 0) FROM api_log WHERE agent = 'researcher' AND timestamp LIKE ?",
                 (f"{month}%",),
             ).fetchone()
         return float(row[0])
@@ -84,7 +84,7 @@ def _alltime_spend() -> float:
     try:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT COALESCE(SUM(est_cost_usd), 0) FROM api_log"
+                "SELECT COALESCE(SUM(est_cost_usd), 0) FROM api_log WHERE agent = 'researcher'"
             ).fetchone()
         return float(row[0])
     except Exception:
@@ -187,7 +187,9 @@ def _get_api_log(limit: int = 20) -> list[dict]:
             rows = conn.execute(
                 """SELECT timestamp, agent, action, input_tokens,
                           output_tokens, web_searches, est_cost_usd, notes
-                   FROM api_log ORDER BY timestamp DESC LIMIT ?""",
+                   FROM api_log
+                   WHERE agent = 'researcher'
+                   ORDER BY timestamp DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
@@ -195,17 +197,37 @@ def _get_api_log(limit: int = 20) -> list[dict]:
         return []
 
 
-def _get_spend_by_agent() -> list[dict]:
+def _get_researcher_spend_detail() -> dict:
+    """Researcher-specific spend: today / this month / all-time."""
+    now   = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    month = now.strftime("%Y-%m")
+
+    stats = {
+        "today_usd":   0.0,
+        "month_usd":   0.0,
+        "alltime_usd": 0.0,
+        "total_calls": 0,
+    }
     try:
         with get_connection() as conn:
-            rows = conn.execute(
-                """SELECT agent, COUNT(*) AS calls,
-                          COALESCE(SUM(est_cost_usd), 0) AS total_usd
-                   FROM api_log GROUP BY agent ORDER BY total_usd DESC"""
-            ).fetchall()
-        return [dict(r) for r in rows]
+            row = conn.execute(
+                """SELECT
+                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0) AS today,
+                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0) AS month,
+                       COALESCE(SUM(est_cost_usd), 0) AS alltime,
+                       COUNT(*) AS calls
+                   FROM api_log
+                   WHERE agent = 'researcher'""",
+                (f"{today}%", f"{month}%"),
+            ).fetchone()
+            stats["today_usd"]   = float(row[0])
+            stats["month_usd"]   = float(row[1])
+            stats["alltime_usd"] = float(row[2])
+            stats["total_calls"] = int(row[3])
     except Exception:
-        return []
+        pass
+    return stats
 
 
 # ─── Page ─────────────────────────────────────────────────────────────────────
@@ -231,9 +253,9 @@ with tab_a:
     month_spend = _month_spend()
 
     st.info(
-        f"**Cost heads-up:** Each research run costs approximately **$0.05 – $0.15** "
+        f"**Cost heads-up:** Each research run costs approximately **₹5–₹15** "
         f"depending on results returned. "
-        f"**This month's spend so far: ${month_spend:.4f}**",
+        f"**This month's Researcher spend so far: {format_cost_inr(month_spend)}**",
         icon="💰",
     )
 
@@ -251,7 +273,7 @@ with tab_a:
         geo_choice = st.selectbox(
             "Source geography mix",
             options=geo_options,
-            index=0,               # "Indian-heavy (3:2)" is default
+            index=0,
             help=(
                 "Controls the ratio of Indian vs international sources. "
                 "'Quality wins' means geography is ignored entirely."
@@ -310,14 +332,14 @@ with tab_a:
                 st.success(
                     f"Done — saved **{saved} item{'s' if saved != 1 else ''}** "
                     f"(all {requested} requested met the threshold). "
-                    f"Estimated cost: **${cost:.4f}**"
+                    f"Estimated cost: **{format_cost_inr(cost)}**"
                 )
             else:
                 st.success(
                     f"Done — saved **{saved} item{'s' if saved != 1 else ''}** "
                     f"(you requested up to {requested}, but only {saved} met the "
                     f"relevance threshold of {min_relevance}). "
-                    f"Estimated cost: **${cost:.4f}**"
+                    f"Estimated cost: **{format_cost_inr(cost)}**"
                 )
                 if rejected > 0 and rej_note:
                     st.info(
@@ -368,25 +390,25 @@ with tab_a:
 # ─── TAB B — Research Library ─────────────────────────────────────────────────
 
 with tab_b:
-    topics     = _get_distinct_topics(product_id)
+    topics      = _get_distinct_topics(product_id)
     geographies = _get_distinct_geographies(product_id)
 
     col_f1, col_f2, col_f3, col_f4 = st.columns([3, 2, 2, 2])
 
     with col_f1:
-        topic_options       = ["All topics"] + topics
-        topic_filter_label  = st.selectbox("Filter by topic", topic_options, key="lib_topic")
-        topic_filter        = None if topic_filter_label == "All topics" else topic_filter_label
+        topic_options      = ["All topics"] + topics
+        topic_filter_label = st.selectbox("Filter by topic", topic_options, key="lib_topic")
+        topic_filter       = None if topic_filter_label == "All topics" else topic_filter_label
 
     with col_f2:
-        geo_options_lib     = ["All geographies"] + geographies
-        geo_filter_label    = st.selectbox("Geography", geo_options_lib, key="lib_geo")
-        geo_filter          = None if geo_filter_label == "All geographies" else geo_filter_label
+        geo_options_lib  = ["All geographies"] + geographies
+        geo_filter_label = st.selectbox("Geography", geo_options_lib, key="lib_geo")
+        geo_filter       = None if geo_filter_label == "All geographies" else geo_filter_label
 
     with col_f3:
-        url_status_options  = ["All", "OK/Redirected", "Broken/Timeout"]
-        url_filter_label    = st.selectbox("URL status", url_status_options, key="lib_url")
-        url_filter          = None if url_filter_label == "All" else url_filter_label
+        url_status_options = ["All", "OK/Redirected", "Broken/Timeout"]
+        url_filter_label   = st.selectbox("URL status", url_status_options, key="lib_url")
+        url_filter         = None if url_filter_label == "All" else url_filter_label
 
     with col_f4:
         min_score_lib = st.slider("Min score", 1, 10, 4, key="lib_min_score")
@@ -408,7 +430,6 @@ with tab_b:
             icon="ℹ️",
         )
     else:
-        # Count broken links
         broken_count = sum(1 for i in items if i.get("url_status") in ("broken", "timeout"))
         if broken_count:
             st.warning(
@@ -470,7 +491,6 @@ with tab_b:
                             st.session_state[arm_key] = True
                             st.rerun()
 
-                # Broken-link warning banner — prominent, inside expander
                 if broken:
                     st.error(
                         f"⚠ Link {u_status} — this summary could not be verified against the source page. "
@@ -487,37 +507,34 @@ with tab_b:
 # ─── TAB C — API Spend ───────────────────────────────────────────────────────
 
 with tab_c:
-    month_spend  = _month_spend()
-    alltime      = _alltime_spend()
-    by_agent     = _get_spend_by_agent()
+    spend        = _get_researcher_spend_detail()
     recent_calls = _get_api_log(20)
 
-    col1, col2 = st.columns(2)
-    col1.metric("This month's spend", f"${month_spend:.4f}")
-    col2.metric("All-time spend", f"${alltime:.4f}")
+    st.markdown("### Researcher spend")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Today",      format_cost_inr(spend["today_usd"]))
+    col2.metric("This month", format_cost_inr(spend["month_usd"]))
+    col3.metric("All time",   format_cost_inr(spend["alltime_usd"]))
+    col4.metric("Total calls", spend["total_calls"])
 
-    if by_agent:
-        st.markdown("#### Breakdown by agent")
-        for row in by_agent:
-            st.markdown(
-                f"- **{row['agent'].capitalize()}** — "
-                f"{row['calls']} call{'s' if row['calls'] != 1 else ''}, "
-                f"${row['total_usd']:.4f}"
-            )
+    if spend["total_calls"] > 0:
+        avg_inr = (spend["alltime_usd"] / spend["total_calls"]) * 95
+        st.caption(f"Average cost per research run: **₹{avg_inr:.2f}**")
 
-    st.markdown("#### Last 20 API calls")
+    st.divider()
+    st.markdown("#### Last 20 Researcher API calls")
     if not recent_calls:
-        st.info("No API calls logged yet.", icon="ℹ️")
+        st.info("No Researcher API calls logged yet.", icon="ℹ️")
     else:
         for call in recent_calls:
             ts       = (call.get("timestamp") or "")[:19].replace("T", " ")
-            agent    = call.get("agent") or "—"
             action   = call.get("action") or "—"
             cost     = call.get("est_cost_usd") or 0.0
             searches = call.get("web_searches") or 0
             notes    = call.get("notes") or ""
             st.markdown(
-                f"`{ts}` · **{agent}** · *{action}* · "
-                f"{searches} search{'es' if searches != 1 else ''} · **${cost:.4f}**"
+                f"`{ts}` · *{action}* · "
+                f"{searches} search{'es' if searches != 1 else ''} · "
+                f"**{format_cost_inr(cost)}**"
                 + (f"  \n  `{notes}`" if notes else "")
             )

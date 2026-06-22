@@ -10,9 +10,9 @@ The user can run the full pipeline or resume from any stage.
 """
 
 import streamlit as st
-from services.page_utils import init_page
+from services.page_utils import init_page, format_cost_inr
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from services.brand_context import get_active_product
 from agents.researcher import research_topic, GEOGRAPHY_OPTIONS
@@ -32,6 +32,7 @@ st.set_page_config(
 )
 
 init_page()
+
 # ─── brand context ────────────────────────────────────────────────────────────
 
 product = get_active_product()
@@ -54,9 +55,8 @@ st.divider()
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 def _fmt_cost(usd: float) -> str:
-    if usd == 0:
-        return "$0.00"
-    return f"${usd:.4f}"
+    """Format USD cost as INR for display."""
+    return format_cost_inr(usd)
 
 
 def _stage_header(icon: str, name: str, status: str = "") -> None:
@@ -125,18 +125,66 @@ def _pipeline_snapshot(product_id: int) -> dict:
     unreviewed    = count_unreviewed_drafts(product_id)
 
     return {
-        "research_items":   research_n,
-        "angles_proposed":  angles_proposed,
-        "angles_approved":  angles_approved,
-        "total_drafts":     total_drafts,
-        "approved_drafts":  approved_drafts,
-        "reviewed_drafts":  reviewed_drafts,
+        "research_items":    research_n,
+        "angles_proposed":   angles_proposed,
+        "angles_approved":   angles_approved,
+        "total_drafts":      total_drafts,
+        "approved_drafts":   approved_drafts,
+        "reviewed_drafts":   reviewed_drafts,
         "unreviewed_drafts": unreviewed,
-        "media_briefs":     media_briefs,
-        "scheduled":        sched_summary["scheduled_pending"],
-        "unscheduled":      sched_summary["unscheduled"],
-        "posted":           sched_summary["posted_this_month"],
+        "media_briefs":      media_briefs,
+        "scheduled":         sched_summary["scheduled_pending"],
+        "unscheduled":       sched_summary["unscheduled"],
+        "posted":            sched_summary["posted_this_month"],
     }
+
+
+def _get_all_agent_spend() -> dict:
+    """Return consolidated spend breakdown by agent from api_log."""
+    now   = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    month = now.strftime("%Y-%m")
+
+    result = {
+        "today_usd":   0.0,
+        "month_usd":   0.0,
+        "alltime_usd": 0.0,
+        "total_calls": 0,
+        "by_agent":    [],
+    }
+
+    try:
+        with get_connection() as conn:
+            totals_row = conn.execute(
+                """SELECT
+                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0) AS today,
+                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0) AS month,
+                       COALESCE(SUM(est_cost_usd), 0) AS alltime,
+                       COUNT(*) AS calls
+                   FROM api_log""",
+                (f"{today}%", f"{month}%"),
+            ).fetchone()
+            result["today_usd"]   = float(totals_row[0])
+            result["month_usd"]   = float(totals_row[1])
+            result["alltime_usd"] = float(totals_row[2])
+            result["total_calls"] = int(totals_row[3])
+
+            by_agent_rows = conn.execute(
+                """SELECT
+                       agent,
+                       COUNT(*) AS calls,
+                       COALESCE(SUM(est_cost_usd), 0) AS alltime_usd,
+                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0) AS month_usd
+                   FROM api_log
+                   GROUP BY agent
+                   ORDER BY alltime_usd DESC""",
+                (f"{month}%",),
+            ).fetchall()
+            result["by_agent"] = [dict(r) for r in by_agent_rows]
+    except Exception:
+        pass
+
+    return result
 
 
 # ─── pipeline status snapshot ─────────────────────────────────────────────────
@@ -145,12 +193,55 @@ st.subheader("📊 Pipeline Status")
 snap = _pipeline_snapshot(product_id)
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("🔍 Research",    snap["research_items"],   help="Items in research library")
-c2.metric("📐 Angles",      f"{snap['angles_approved']}/{snap['angles_proposed']}", help="Approved / Total proposed")
-c3.metric("✍️ Drafts",      f"{snap['approved_drafts']}/{snap['total_drafts']}",   help="Approved / Total drafts")
-c4.metric("🔎 Reviewed",    f"{snap['reviewed_drafts']}/{snap['total_drafts']}",   help="Reviewed / Total drafts")
-c5.metric("📸 Media",       snap["media_briefs"],     help="Media briefs generated")
-c6.metric("🗓 Scheduled",   snap["scheduled"],        help="Posts on calendar (pending)")
+c1.metric("🔍 Research",  snap["research_items"],
+          help="Items in research library")
+c2.metric("📐 Angles",    f"{snap['angles_approved']}/{snap['angles_proposed']}",
+          help="Approved / Total proposed")
+c3.metric("✍️ Drafts",    f"{snap['approved_drafts']}/{snap['total_drafts']}",
+          help="Approved / Total drafts")
+c4.metric("🔎 Reviewed",  f"{snap['reviewed_drafts']}/{snap['total_drafts']}",
+          help="Reviewed / Total drafts")
+c5.metric("📸 Media",     snap["media_briefs"],
+          help="Media briefs generated")
+c6.metric("🗓 Scheduled", snap["scheduled"],
+          help="Posts on calendar (pending)")
+
+st.divider()
+
+# ─── consolidated api spend dashboard ────────────────────────────────────────
+
+st.subheader("💸 Total API Spend")
+
+spend = _get_all_agent_spend()
+
+sp1, sp2, sp3, sp4 = st.columns(4)
+sp1.metric("Today",        format_cost_inr(spend["today_usd"]))
+sp2.metric("This month",   format_cost_inr(spend["month_usd"]))
+sp3.metric("All time",     format_cost_inr(spend["alltime_usd"]))
+sp4.metric("Total API calls", spend["total_calls"])
+
+if spend["by_agent"]:
+    with st.expander("Breakdown by agent"):
+        # Agent display name map
+        _AGENT_LABEL = {
+            "researcher": "🔍 Researcher",
+            "strategist": "📐 Strategist",
+            "copywriter": "✍️ Copywriter",
+            "editor":     "🔎 Editor",
+            "media":      "📸 Media (free)",
+        }
+        for row in spend["by_agent"]:
+            agent      = row.get("agent") or "unknown"
+            label      = _AGENT_LABEL.get(agent, agent.capitalize())
+            calls      = int(row.get("calls") or 0)
+            alltime    = float(row.get("alltime_usd") or 0.0)
+            month_usd  = float(row.get("month_usd") or 0.0)
+            st.markdown(
+                f"**{label}** — "
+                f"{calls} call{'s' if calls != 1 else ''} · "
+                f"This month: {format_cost_inr(month_usd)} · "
+                f"All time: {format_cost_inr(alltime)}"
+            )
 
 st.divider()
 
@@ -197,8 +288,8 @@ with tab_full:
             )
 
     st.markdown(
-        "**Estimated cost:** ~$0.05–0.25 depending on research items and angles. "
-        "Drafts + Editor + Media are the main cost drivers."
+        "**Estimated cost:** ~₹5–₹25 depending on research items and angles. "
+        "Drafts + Editor are the main cost drivers."
     )
 
     run_btn = st.button("🚀 Run Full Pipeline", type="primary", use_container_width=True)
@@ -276,9 +367,7 @@ with tab_full:
             "and approve the angles you want to use. "
             "Then come back here and use **Run Individual Stage → Drafts** to continue."
         )
-        st.info(
-            f"💡 Total cost so far: **{_fmt_cost(total_cost)}**"
-        )
+        st.info(f"💡 Total cost so far: **{_fmt_cost(total_cost)}**")
         st.stop()
 
 
@@ -337,9 +426,9 @@ with tab_stage:
     # ── Strategy ──────────────────────────────────────────────────────────
     elif stage == "📐 Strategy":
         st.markdown("#### Strategy Stage")
-        max_a_s   = st.slider("Max angles", 4, 20, 10, key="s_maxa")
+        max_a_s    = st.slider("Max angles", 4, 20, 10, key="s_maxa")
         min_rel_s2 = st.slider("Min relevance", 5, 10, 7, key="s_minrel2")
-        focus_s   = st.text_input("Optional editorial focus", key="s_focus")
+        focus_s    = st.text_input("Optional editorial focus", key="s_focus")
 
         if st.button("Run Strategy", type="primary", key="btn_strategy"):
             with st.spinner("Clustering research into story angles…"):
@@ -380,7 +469,8 @@ with tab_stage:
         if approved_count == 0:
             st.info("Nothing to draft. Either no approved angles, or all angles already have drafts.")
         else:
-            st.markdown(f"**Estimated cost:** ~{_fmt_cost(approved_count * 0.08)} (rough estimate)")
+            est_usd = approved_count * 0.08
+            st.markdown(f"**Estimated cost:** ~{_fmt_cost(est_usd)} (rough estimate)")
             if st.button("Run Drafts", type="primary", key="btn_drafts"):
                 with st.spinner(f"Writing drafts for {approved_count} angle(s)…"):
                     result = write_drafts_for_all_approved(product_id)
@@ -408,7 +498,8 @@ with tab_stage:
         if unreviewed == 0:
             st.info("All drafts have been reviewed.")
         else:
-            st.markdown(f"**Estimated cost:** ~{_fmt_cost(unreviewed * 0.027)}")
+            est_usd = unreviewed * 0.027
+            st.markdown(f"**Estimated cost:** ~{_fmt_cost(est_usd)}")
             if st.button("Run Editor", type="primary", key="btn_editor"):
                 draft_ids = _get_unreviewed_draft_ids(product_id)
                 progress  = st.progress(0, text="Reviewing drafts…")
@@ -456,7 +547,7 @@ with tab_stage:
         if without_brief == 0:
             st.info("All drafts have media briefs.")
         else:
-            st.markdown(f"**Estimated cost:** ~{_fmt_cost(without_brief * 0.018)}")
+            st.markdown("**Cost: Free** (Media briefs use zero-cost templates)")
             if st.button("Run Media", type="primary", key="btn_media"):
                 with st.spinner(f"Generating briefs for {without_brief} draft(s)…"):
                     result = generate_all_pending(product_id, force=False)
@@ -465,7 +556,7 @@ with tab_stage:
                     f"✅ Generated: **{result['generated']}** · "
                     f"Skipped (no image brief): {result['skipped_no_brief']} · "
                     f"Failed: {result['failed']} · "
-                    f"Cost: {_fmt_cost(result['total_cost_usd'])}"
+                    f"Cost: Free"
                 )
                 if result.get("errors"):
                     with st.expander("Errors"):
