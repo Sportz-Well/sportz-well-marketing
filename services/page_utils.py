@@ -1,16 +1,23 @@
-"""Shared page utilities — dark theme CSS + cached database initialisation.
+"""Shared page utilities — warm slate theme CSS + cached database initialisation.
 
 Every inner page calls init_page() immediately after st.set_page_config().
 
 Usage in any inner page:
-    
 
     st.set_page_config(page_title="...", page_icon="...", layout="wide")
     init_page()
 
 This ensures:
   1. Database is initialised exactly once per server lifecycle (not on every page load).
-  2. Premium dark theme matches the home page on every inner page.
+  2. Warm slate dark theme applied consistently across every inner page.
+
+Theme palette (Tailwind slate family — warm, readable, not cold):
+  Background:  #0f172a  (slate-900)
+  Cards:       #1e293b  (slate-800)
+  Borders:     #334155  (slate-700)
+  Primary text:#f1f5f9  (slate-100)
+  Muted text:  #94a3b8  (slate-400)
+  Gold accent: #f5a623  (unchanged)
 """
 
 from __future__ import annotations
@@ -30,24 +37,24 @@ _DARK_THEME_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@300;400;500&display=swap');
 
-/* ── Hide Streamlit chrome — header, toolbar, footer ── */
+/* ── Hide Streamlit chrome ── */
 #MainMenu { visibility: hidden; }
 header[data-testid="stHeader"] {
-    background-color: #080810 !important;
-    border-bottom: 1px solid #1e1e35 !important;
+    background-color: #0f172a !important;
+    border-bottom: 1px solid #334155 !important;
 }
 [data-testid="stToolbar"] { display: none !important; }
 footer { visibility: hidden; }
 
 /* ── Core background ── */
-.stApp { background-color: #080810; color: #e8e8f0; }
+.stApp { background-color: #0f172a; color: #f1f5f9; }
 
 /* ── Sidebar ── */
 [data-testid="stSidebar"] {
-    background-color: #0d0d1a !important;
-    border-right: 1px solid #1e1e35;
+    background-color: #0c1524 !important;
+    border-right: 1px solid #334155;
 }
-[data-testid="stSidebar"] * { color: #c8c8e0 !important; }
+[data-testid="stSidebar"] * { color: #cbd5e1 !important; }
 [data-testid="stSidebar"] a:hover { color: #f5a623 !important; }
 
 /* ── Main container ── */
@@ -60,19 +67,20 @@ footer { visibility: hidden; }
 /* ── Typography ── */
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Rajdhani', sans-serif !important;
-    color: #ffffff !important;
+    color: #f8fafc !important;
     letter-spacing: 0.04em !important;
 }
+p, li, span { color: #e2e8f0; }
 
 /* ── Metrics ── */
 .stMetric {
-    background: #0d0d1a !important;
-    border: 1px solid #1e1e35 !important;
-    border-radius: 4px !important;
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 6px !important;
     padding: 1rem !important;
 }
-[data-testid="stMetricValue"] { color: #ffffff !important; }
-[data-testid="stMetricLabel"] { color: #6868a0 !important; }
+[data-testid="stMetricValue"] { color: #f8fafc !important; }
+[data-testid="stMetricLabel"] { color: #94a3b8 !important; }
 
 /* ── Buttons — secondary (default) ── */
 .stButton > button {
@@ -87,12 +95,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 .stButton > button:hover {
     background: #f5a623 !important;
-    color: #080810 !important;
+    color: #0f172a !important;
 }
+
 /* ── Buttons — primary ── */
 .stButton > button[kind="primary"] {
     background: #f5a623 !important;
-    color: #080810 !important;
+    color: #0f172a !important;
     border-color: #f5a623 !important;
 }
 .stButton > button[kind="primary"]:hover {
@@ -103,14 +112,14 @@ h1, h2, h3, h4, h5, h6 {
 /* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
     background: transparent !important;
-    border-bottom: 1px solid #1e1e35 !important;
+    border-bottom: 1px solid #334155 !important;
 }
 .stTabs [data-baseweb="tab"] {
     font-family: 'Rajdhani', sans-serif !important;
     font-weight: 600 !important;
     letter-spacing: 0.08em !important;
     text-transform: uppercase !important;
-    color: #6868a0 !important;
+    color: #64748b !important;
     background: transparent !important;
 }
 .stTabs [aria-selected="true"] {
@@ -119,9 +128,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ── Divider ── */
-[data-testid="stDivider"] { border-color: #1a1a2e !important; }
+[data-testid="stDivider"] { border-color: #334155 !important; }
 
-/* ── Input fields — ALL states including disabled and read-only ── */
+/* ── Input fields ── */
 .stTextInput > div > div > input,
 .stTextInput > div > div > input:disabled,
 .stTextInput > div > div > input[readonly],
@@ -132,10 +141,10 @@ textarea,
 textarea:disabled,
 textarea[disabled],
 textarea[readonly] {
-    background-color: #0d0d1a !important;
-    border-color: #2a2a4a !important;
-    color: #e8e8f0 !important;
-    -webkit-text-fill-color: #e8e8f0 !important;
+    background-color: #1e293b !important;
+    border-color: #334155 !important;
+    color: #f1f5f9 !important;
+    -webkit-text-fill-color: #f1f5f9 !important;
     opacity: 1 !important;
 }
 .stTextInput > div > div > input:focus,
@@ -145,61 +154,74 @@ textarea[readonly] {
 }
 .stSelectbox > div > div,
 .stMultiSelect > div > div {
-    background-color: #0d0d1a !important;
-    border-color: #2a2a4a !important;
-    color: #e8e8f0 !important;
+    background-color: #1e293b !important;
+    border-color: #334155 !important;
+    color: #f1f5f9 !important;
 }
-[data-baseweb="select"] { background-color: #0d0d1a !important; }
-[data-baseweb="menu"] { background-color: #0d0d1a !important; border: 1px solid #2a2a4a !important; }
-[data-baseweb="option"] { background-color: #0d0d1a !important; color: #e8e8f0 !important; }
-[data-baseweb="option"]:hover { background-color: #12122a !important; }
+[data-baseweb="select"] { background-color: #1e293b !important; }
+[data-baseweb="menu"] {
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+}
+[data-baseweb="option"] {
+    background-color: #1e293b !important;
+    color: #f1f5f9 !important;
+}
+[data-baseweb="option"]:hover { background-color: #293548 !important; }
 
 /* ── Labels ── */
 .stTextInput label, .stTextArea label, .stSelectbox label,
 .stSlider label, .stCheckbox label, .stRadio label,
 .stMultiSelect label, .stNumberInput label {
-    color: #a0a0c8 !important;
+    color: #94a3b8 !important;
     font-family: 'Inter', sans-serif !important;
     font-size: 0.85rem !important;
 }
 
 /* ── Checkboxes ── */
-.stCheckbox > label { color: #c8c8e0 !important; }
+.stCheckbox > label { color: #cbd5e1 !important; }
 
 /* ── Expanders ── */
 .streamlit-expanderHeader {
-    background-color: #0d0d1a !important;
-    border: 1px solid #1e1e35 !important;
-    color: #d0d0f0 !important;
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+    color: #e2e8f0 !important;
     font-family: 'Rajdhani', sans-serif !important;
     letter-spacing: 0.05em !important;
 }
 .streamlit-expanderContent {
-    background-color: #0d0d1a !important;
-    border: 1px solid #1e1e35 !important;
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
     border-top: none !important;
+}
+
+/* ── Containers with border ── */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 6px !important;
 }
 
 /* ── Alert boxes ── */
 [data-testid="stInfo"] {
-    background: rgba(80,120,255,0.07) !important;
-    border: 1px solid rgba(80,120,255,0.2) !important;
-    color: #90a8f8 !important;
+    background: rgba(96,165,250,0.08) !important;
+    border: 1px solid rgba(96,165,250,0.25) !important;
+    color: #93c5fd !important;
 }
 [data-testid="stWarning"] {
-    background: rgba(245,166,35,0.08) !important;
-    border: 1px solid rgba(245,166,35,0.22) !important;
-    color: #e8c87a !important;
+    background: rgba(245,166,35,0.09) !important;
+    border: 1px solid rgba(245,166,35,0.28) !important;
+    color: #fcd34d !important;
 }
 [data-testid="stSuccess"] {
-    background: rgba(0,200,100,0.07) !important;
-    border: 1px solid rgba(0,200,100,0.18) !important;
-    color: #70e8a8 !important;
+    background: rgba(52,211,153,0.08) !important;
+    border: 1px solid rgba(52,211,153,0.22) !important;
+    color: #6ee7b7 !important;
 }
 [data-testid="stError"] {
-    background: rgba(232,80,80,0.08) !important;
-    border: 1px solid rgba(232,80,80,0.22) !important;
-    color: #f08080 !important;
+    background: rgba(248,113,113,0.08) !important;
+    border: 1px solid rgba(248,113,113,0.25) !important;
+    color: #fca5a5 !important;
 }
 
 /* ── Progress bar ── */
@@ -215,24 +237,35 @@ textarea[readonly] {
 }
 
 /* ── Dataframes / tables ── */
-[data-testid="stDataFrame"] {
-    border: 1px solid #1e1e35 !important;
-}
-.dvn-scroller { background-color: #0d0d1a !important; }
+[data-testid="stDataFrame"] { border: 1px solid #334155 !important; }
+.dvn-scroller { background-color: #1e293b !important; }
 
 /* ── Code blocks ── */
-.stCode { background-color: #0d0d1a !important; border: 1px solid #1e1e35 !important; }
+.stCode {
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+    color: #e2e8f0 !important;
+}
 
 /* ── Captions ── */
-.stCaption { color: #585890 !important; }
+.stCaption { color: #64748b !important; }
 
 /* ── Forms ── */
 [data-testid="stForm"] {
-    background-color: #0d0d1a !important;
-    border: 1px solid #1e1e35 !important;
-    border-radius: 4px !important;
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 6px !important;
     padding: 1.5rem !important;
 }
+
+/* ── Status containers ── */
+[data-testid="stStatusWidget"] {
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+}
+
+/* ── Radio buttons ── */
+.stRadio > div { color: #cbd5e1 !important; }
 </style>
 """
 
@@ -258,7 +291,7 @@ def init_page() -> None:
 
     Handles:
     - Database initialisation (once per server lifecycle, cached)
-    - Dark theme CSS injection (matches home page exactly)
+    - Warm slate theme CSS injection (consistent across all pages)
     """
     _init_db_once()
     st.markdown(_DARK_THEME_CSS, unsafe_allow_html=True)
