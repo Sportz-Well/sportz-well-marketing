@@ -97,13 +97,14 @@ brand-specific lives in the `brand_profiles` table, keyed by client.
 
 ---
 
-## Repository Layout (current state as of 2026-06-18)
+## Repository Layout (current state as of 2026-06-28)
 
 ```
 agents/
   researcher.py    ✅ BCCI/IPL hard cap at 4/10; sqlite3 refs removed
   strategist.py    ✅
-  copywriter.py    ✅ delete_draft_permanently + get_editor_review_status present
+  copywriter.py    ✅ duplicate functions removed (delete_draft_permanently,
+                      get_editor_review_status each now defined exactly once)
   editor.py        ✅ sqlite3 refs removed
   media.py         ✅ ZERO COST — template-based, no API calls
   scheduler.py     ✅
@@ -111,76 +112,93 @@ db/
   schema.sql       ✅ canonical schema
   init_db.py       ✅ creates DB, auto-migrates
 ui/
-  app.py           ✅ premium dark theme (Rajdhani, #080810, #f5a623)
+  app.py           ✅ warm slate theme (#0f172a bg, #1e293b cards, #334155 borders)
   pages/
     1_Brand_Brain.py    ✅
-    2_Research.py       ⚠️  cost display still shows USD — fix pending
-    3_Strategy.py       ✅ LinkedIn added throughout; INR costs; subtitle fixed
-    4_Drafts.py         ✅ 2-tab week-native redesign (Weekly Drafts + Generate)
-    5_Editor.py         ✅ LinkedIn filter; posted drafts hidden; sqlite3 removed
-    6_Media.py          ✅ zero-cost template prompts
+    2_Research.py       ✅ INR display throughout; Researcher spend card (Today/Month/All time)
+    3_Strategy.py       ✅ week picker on Story Angles Library; auto-hide completed angles;
+                           delete buttons with cascade; Strategy spend card in Tab C
+    4_Drafts.py         ✅ delete buttons on every card; Copywriter spend card;
+                           warm slate colours; format_cost_inr throughout
+    5_Editor.py         ✅ bulk "Review All Unreviewed" button; full draft content shown
+                           in Tab A alongside issues (no more back-and-forth to Drafts)
+    6_Media.py          ⚠️  MISSING: no "hide posted drafts" toggle — posted media briefs
+                           still visible. Fix is NEXT PRIORITY.
     7_Calendar.py       ✅
-    8_Orchestrator.py   ✅
+    8_Orchestrator.py   ✅ INR display; consolidated spend dashboard (all agents)
 services/
   anthropic_client.py   ✅
   database.py           ✅ PostgreSQL wrapper with ? → %s auto-conversion
   brand_context.py      ✅
   url_validator.py      ✅
   source_preferences.py ✅
-  page_utils.py         ✅ USD_TO_INR=95 + format_cost_inr() helper added
+  page_utils.py         ✅ warm slate theme CSS; USD_TO_INR=95; format_cost_inr() helper
 tests/
   test_editor_parser.py ✅ 18 smoke tests, all passing
 ```
 
 ---
 
-## What Was Done — Session 2026-06-18
+## Theme — Warm Slate Palette (applied 2026-06-28)
 
-### 1. Editor page (5_Editor.py + agents/editor.py)
-- LinkedIn added to `_PLATFORM_BADGE` dict and platform filter dropdown
-- Posted drafts now hidden by default — "Show posted drafts" checkbox to reveal
-- `import sqlite3` removed from both files
-- All `except sqlite3.OperationalError` → `except Exception` (3 places in each)
-- All cost display switched to ₹ via `format_cost_inr()`
+All pages now use warm slate. The old cold near-black palette is gone.
 
-### 2. Drafts page — complete redesign (4_Drafts.py)
-- **5 tabs → 2 tabs only:** Weekly Drafts + Generate
-- Week picker dropdown (defaults to current week, navigate backwards)
-- Platform filter: All / LinkedIn / Facebook / Instagram
-- Posted drafts invisible automatically (no toggle needed)
-- Rejected drafts invisible automatically
-- Single unified card per draft — status badge adapts to state
-- Status badges: 📅 Scheduled | ✅ Approved | 🟢 Editor Clean | 🚩 Needs Fix | ⏳ Not Reviewed
-- Action buttons adapt to status (Approve/Reject/Edit as appropriate)
-- Generate tab unchanged
+| Element | Colour |
+|---|---|
+| App background | `#0f172a` |
+| Cards / containers | `#1e293b` |
+| Borders | `#334155` |
+| Primary text | `#f1f5f9` |
+| Muted text / labels | `#94a3b8` |
+| Captions | `#64748b` |
+| Gold accent | `#f5a623` (unchanged) |
+| Font | Rajdhani (headings) + Inter (body) |
 
-### 3. page_utils.py — INR helper
-- `USD_TO_INR: int = 95` constant added
-- `format_cost_inr(usd: float) -> str` helper added
-- Returns `₹2.57` style strings for all cost display
+Home page (`app.py`) has CSS hardcoded directly (does not use `init_page()`).
+All inner pages use `init_page()` from `services/page_utils.py`.
 
-### 4. Strategy page (3_Strategy.py)
-- Subtitle updated: "LinkedIn, Instagram & Facebook"
-- `_PLATFORM_BADGE` dict: LinkedIn added
-- Platform filter dropdown: LinkedIn added
-- Filter logic: LinkedIn = exact match; Instagram/Facebook = includes "both"
-- Pipeline Overview: 4-column platform breakdown including LinkedIn
-- All USD cost displays → `format_cost_inr()`
-- Import: `from services.page_utils import init_page, format_cost_inr`
+---
 
-### 5. Researcher agent (agents/researcher.py)
-- `import sqlite3` removed
-- BCCI scoring cap added to system prompt:
-  **IPL / national team / BCCI content hard-capped at relevance_score 4**
-  regardless of source quality or recency
-- All `except sqlite3.OperationalError` → `except Exception`
+## What Was Done — Session 2026-06-28
 
-### 6. Content — week of Jun 16–21
-- 6 posts scheduled in Calendar across LinkedIn, Facebook, Instagram
-- 2 LinkedIn posts from prior week marked as Posted (Jun 8 + Jun 12)
-- Research run: 2 new topics completed (12 new items in library)
-  - "AI and biochemical analysis in sports performance India" (6 items)
-  - "Data driven coaching grassroots sports India academy" (6 items)
+### UX overhaul (Option A)
+
+**`services/page_utils.py`** — cold dark palette replaced with warm slate. Applied globally
+to all inner pages via `init_page()`.
+
+**`ui/app.py`** — home page CSS updated to match inner pages. Previous CSS used cold `#080810`
+background. Now uses `#0f172a` and full warm slate palette.
+
+**`ui/pages/5_Editor.py`**
+- Bulk "Review All Unreviewed" button with progress bar (Tab A top)
+- Full draft content display in Tab A — headline, body, CTA, hashtags shown when you
+  select a draft. Copy helpers embedded. No more going back to Drafts page to read the post.
+- `format_cost_inr` throughout
+- `review_draft` and `rereview_draft` moved to top-level imports
+
+**`ui/pages/3_Strategy.py`**
+- Week picker on Story Angles Library — defaults to current week
+- Auto-hide completed angles (all drafts posted) — "Show completed" checkbox to reveal
+- Delete button 🗑️ on every angle card — arm/confirm pattern, cascade deletes
+- Restore button on rejected angles
+- `_get_strategy_spend()` + spend card at bottom of Tab C
+- `_delete_angle_permanently()` function (cascade: schedule → media_briefs →
+  editor_reviews → drafts → story_angle)
+
+**`ui/pages/4_Drafts.py`**
+- Delete button 🗑️ on every draft card — arm/confirm, cascade via `delete_draft_permanently()`
+- `_get_copywriter_spend()` + spend card at bottom of Generate tab
+- Warm slate colours in `_render_body()` and `STATUS_BADGE`
+- `format_cost_inr` throughout
+
+**`ui/pages/2_Research.py`** — full INR display; spend card shows Today/Month/All time
+for Researcher agent only (was showing all agents combined).
+
+**`ui/pages/8_Orchestrator.py`** — INR display; consolidated spend dashboard showing
+Today/Month/All time + per-agent breakdown in expandable section.
+
+**`agents/copywriter.py`** — duplicate `delete_draft_permanently` and
+`get_editor_review_status` definitions removed. Each now defined exactly once.
 
 ---
 
@@ -188,48 +206,41 @@ tests/
 
 ### 🔴 DO FIRST in next session
 
-**1. Strategy → Generate cycle for week of Jun 23 (LinkedIn only)**
-- Research library has 20 items ready
-- Run Strategy with editorial focus: "LinkedIn only — B2B professional angles for academy directors and head coaches"
-- Approve 3-4 LinkedIn angles only
-- Generate drafts → Editor → Approve → Schedule for Jun 23 onwards
+**1. Media page — add "hide posted drafts" toggle (`6_Media.py`)**
+- Posted media briefs are still visible in the Image Prompt Library
+- Simple filter: "Show posted" checkbox (default OFF), same pattern as Editor Tab B
+- This is the immediate UX relief needed — founder spent a whole day confused by this
+- One file, ~30 minutes
 
-**2. Fix Instagram drafts #7 and #8**
-- Both flagged CAPTION_TOO_SHORT (~62–66 words, needs 80–130)
-- Fix in app: Drafts → Weekly Drafts → find them → Edit → add 2 sentences → Save
-- Go to Editor → Re-review → confirm Clean
+**2. Complete the content cycle for week of Jun 23–28**
+- Strategy was run June 23 (9 angles proposed, ₹7.84)
+- Some angles may be approved, drafts may be pending
+- Full cycle: Strategy Angles Library → approve → Generate → Editor bulk review →
+  Approve → Schedule → Post
 
 ### 🟡 NEXT CODE SESSION
 
-**3. Delete button on Drafts weekly cards (4_Drafts.py)**
-- 🗑️ button on each card with inline "Are you sure?" confirmation
-- Permanently deletes draft + cascades to editor_reviews, media_briefs, schedule
-- Calls existing `delete_draft_permanently(draft_id)` in copywriter.py
-- Jitendra's requirement: individual delete per card, not bulk
+**3. Home page redesign — "This Week" command centre (`ui/app.py`)**
+- Replace current status dashboard with a task-based weekly view
+- Show: angles needing approval this week, drafts needing review, posts scheduled
+- "Invisible pipeline" — user thinks in tasks, not pipeline stages
+- One clear screen: "here is what to do today"
 
-**4. Research page INR display (2_Research.py)**
-- Still shows `$0.31` — needs `format_cost_inr()` throughout
-- Quick fix, 1 file, ~15 minutes
+**4. Strategy spend card (already done in 3_Strategy.py — verify live)**
 
 ### 🔵 AFTER JUNE 19 GATE
 
 **5. Sample SWPI academy report + LinkedIn showcase post**
-- SWPI's product is a monthly player development report for academies
-- A sample report posted on LinkedIn is the strongest sales tool
-- Shows academy directors exactly what they'd get
-- Requires: design work + LinkedIn post draft
-- Not started yet
+- Strongest B2B sales tool — shows academy directors what they'd receive monthly
+- Requires design work + LinkedIn post draft
 
 **6. External client onboarding (Saviour Rescuevator)**
-- Fire safety / evacuation lifts industry
-- Pricing: Starter ₹12,000–18,000/month, Full Suite ₹38,000/month, ₹8,000 one-time setup
+- Pricing: Starter ₹12,000–18,000/month, Full Suite ₹38,000/month, ₹8,000 setup
 - Gated: no earlier than June 19, 2026
 - Process: add new product row in Brand Brain → fill brand voice → run agents
 
 **7. Newsletter and Blog pages (Phase 2)**
-- Weekly newsletter + fortnightly blog
 - Deferred until 2 weeks of stable production use
-- New agents: blog_writer.py, newsletter_writer.py
 
 ---
 
@@ -252,8 +263,6 @@ coaches. Any angle that frames coaches negatively must be rewritten.
 **Institutional framing:** Shardashram/Achrekar/Tendulkar referenced as philosophy
 and heritage only. Never as personal credentials or lineage claims.
 
-**No duplicate openers:** Instagram + Facebook angles cannot share identical hook lines.
-
 ---
 
 ## Weekly Content Rhythm (locked in)
@@ -264,6 +273,38 @@ and heritage only. Never as personal credentials or lineage claims.
 | Monday | Strategy → approve angles → Generate drafts |
 | Tuesday | Editor review → fix flagged → Approve |
 | Tuesday–Saturday | Post from Calendar → Mark Posted immediately after |
+
+---
+
+## UX Audit Findings (2026-06-28) — Devil's Advocate Assessment
+
+**Root problem:** App was built around pipeline stages, not the founder's weekly workflow.
+User thinks "I need to post something this week." App says "which pipeline stage are you on?"
+
+**Specific UX failures identified:**
+1. Media page shows all briefs including posted — no filter. Immediate fix needed.
+2. Draft IDs (#13, #14, #31, #32) are meaningless identifiers with no context.
+3. V1 vs V2 of same angle look nearly identical in all list views.
+4. No single screen showing "what is active this week."
+5. Calendar page has minimal operational value for manual copy-paste workflow.
+6. Strategy Angles Library accumulated 24+ angles from multiple runs with no time separation.
+
+**Fixes already shipped:**
+- Week picker on Strategy (shows only this week's angles)
+- Week picker on Drafts (shows only this week's drafts)
+- Delete buttons on angles and drafts
+- Auto-hide completed angles
+- Editor shows full draft content inline
+
+**Fixes still needed:**
+- Media page: hide posted filter
+- Home page: This Week command centre
+- Calendar: collapse into Drafts as a tab (Phase 2 UX)
+
+**Jasper comparison:**
+Jasper wins on simplicity — task-first, invisible system. Our app wins on content quality —
+research-grounded, brand-voice enforced, platform-specific rules, quality gate. The goal is
+to keep the quality ceiling and make the UX as invisible as Jasper's.
 
 ---
 
@@ -304,15 +345,16 @@ Midjourney ❌ | Runway ❌
 
 ---
 
-## Budget (all-time as of 2026-06-18)
+## Budget (all-time as of 2026-06-28)
 
 | Session | Cost |
 |---------|------|
 | All sessions to 2026-05-23 | ~$2.00 |
 | 2026-06-12 (Drafts redesign) | ~$0.00 |
 | 2026-06-14 (LinkedIn + fixes) | ~$0.00 |
-| 2026-06-18 (Today — code fixes) | ~$0.00 |
-| 2026-06-18 (Research — 2 topics) | ~$0.63 |
+| 2026-06-18 (code fixes + research) | ~$0.63 |
+| 2026-06-23 (Strategy run) | ~₹7.84 |
+| 2026-06-28 (code sessions) | ~$0.00 |
 | **Total all-time** | **~$7.34 (~₹697)** |
 
 Weekly running cost: ~₹200/week (~₹800/month)
@@ -322,12 +364,13 @@ Cost per published post: ~₹27
 
 ## Known Issues / Watch List
 
-- **2_Research.py:** Cost display still shows USD — fix pending (next session)
-- **Instagram drafts #7 and #8:** Still flagged CAPTION_TOO_SHORT — fix in app
+- **6_Media.py:** No "hide posted drafts" toggle — NEXT FIX PRIORITY
 - **Strategist intermittent JSON parse failure:** Large research libraries (20+ items).
-  Workaround: re-run — succeeds on retry. Fix before Phase 2.
+  Workaround: re-run — succeeds on retry.
 - **Circular import risk:** Never import `page_utils` from within `page_utils` itself.
   Hit once on 2026-06-18 — fixed via GitHub.com direct edit.
+- **LinkedIn post body violation:** SWPI appeared in post body on one published post.
+  Editor should catch this — monitor every future draft before publishing.
 
 ---
 
@@ -362,3 +405,7 @@ Cost per published post: ~₹27
 14. After saving files, always verify with `Get-Content ... | Select-Object -Last 20`
     before committing. "Nothing to commit" means the file wasn't saved to the right path.
 15. If app crashes with circular import: fix directly on GitHub.com, not locally.
+16. Claude acts as CTO co-founder, friend, and mentor. No sugarcoating. If an idea is
+    weak, say so directly. Test everything until both agree it is bulletproof.
+17. Maximum two files per session — this rule protects against scope creep and errors.
+    Never deliver 3 files in one session without explicit agreement.
