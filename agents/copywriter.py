@@ -68,7 +68,6 @@ def write_drafts_for_angle(angle_id: int, regenerate: bool = False) -> dict[str,
     elif platform_fit == "linkedin":
         platforms = ["linkedin"]
     else:
-        # "both" = instagram + facebook only. LinkedIn must be explicitly assigned.
         platforms = ["instagram", "facebook"]
 
     if not regenerate:
@@ -150,7 +149,10 @@ def write_drafts_for_all_approved(product_id: int) -> dict[str, Any]:
         total_cost   += result.get("est_cost_usd", 0.0)
         total_drafts += result.get("drafts_created", 0)
         if result.get("error"):
-            errors.append(f"Angle {angle['id']} ({angle.get('angle_title') or angle.get('title', '?')}): {result['error']}")
+            errors.append(
+                f"Angle {angle['id']} ({angle.get('angle_title') or angle.get('title', '?')}): "
+                f"{result['error']}"
+            )
         all_warnings.extend(result.get("warnings", []))
 
     return {
@@ -395,11 +397,17 @@ def _build_user_prompt(angle: dict, platforms: list[str]) -> str:
     total_drafts = 2 * len(platforms)
     platform_notes = []
     if "instagram" in platforms:
-        platform_notes.append("Instagram: visual-first, 80-130 words, speaks to young players and emotionally invested parents")
+        platform_notes.append(
+            "Instagram: visual-first, 80-130 words, speaks to young players and emotionally invested parents"
+        )
     if "facebook" in platforms:
-        platform_notes.append("Facebook: concise impact, 60-120 words, speaks to parents making decisions about their child's academy")
+        platform_notes.append(
+            "Facebook: concise impact, 60-120 words, speaks to parents making decisions about their child's academy"
+        )
     if "linkedin" in platforms:
-        platform_notes.append("LinkedIn: B2B professional, 150-300 words, speaks to academy directors and head coaches")
+        platform_notes.append(
+            "LinkedIn: B2B professional, 150-300 words, speaks to academy directors and head coaches"
+        )
 
     return f"""Write drafts for the following approved story angle.
 
@@ -494,7 +502,10 @@ def _validate_drafts(
         if not isinstance(d, dict):
             continue
         if not d.get("body"):
-            warnings.append(f"Dropped draft missing 'body' (platform={d.get('platform')}, variant={d.get('variant_number')}).")
+            warnings.append(
+                f"Dropped draft missing 'body' "
+                f"(platform={d.get('platform')}, variant={d.get('variant_number')})."
+            )
             continue
 
         platform = d.get("platform", "")
@@ -510,26 +521,36 @@ def _validate_drafts(
         except (TypeError, ValueError):
             variant = 0
         if variant not in (1, 2):
-            warnings.append(f"Invalid variant_number {d.get('variant_number')} for {platform} — skipped.")
+            warnings.append(
+                f"Invalid variant_number {d.get('variant_number')} for {platform} — skipped."
+            )
             continue
 
         key = (platform, variant)
         if key in seen:
-            warnings.append(f"Duplicate ({platform}, variant {variant}) — kept first, dropped duplicate.")
+            warnings.append(
+                f"Duplicate ({platform}, variant {variant}) — kept first, dropped duplicate."
+            )
             continue
         seen[key] = True
 
         if platform == "linkedin":
             if content_format not in ("single_image", "text_post"):
                 d["content_format"] = "single_image"
-                warnings.append(f"LinkedIn draft ({platform}, v{variant}) had unsupported format '{content_format}' — forced to 'single_image'.")
+                warnings.append(
+                    f"LinkedIn draft ({platform}, v{variant}) had unsupported format "
+                    f"'{content_format}' — forced to 'single_image'."
+                )
             else:
                 d["content_format"] = content_format
         else:
             d["content_format"] = content_format
 
         if cta_strength == "no_cta" and d.get("cta_line"):
-            warnings.append(f"cta_strength is no_cta but model produced cta_line for ({platform}, v{variant}) — cleared.")
+            warnings.append(
+                f"cta_strength is no_cta but model produced cta_line for "
+                f"({platform}, v{variant}) — cleared."
+            )
             d["cta_line"] = None
 
         if d.get("cta_line"):
@@ -550,12 +571,10 @@ def _validate_drafts(
         elif not isinstance(d.get("reel_script"), dict):
             d["reel_script"] = None
 
-        # Null image_brief and visual_photography_note for LinkedIn text_post
         if platform == "linkedin" and d.get("content_format") == "text_post":
             d["image_brief"] = None
             d["visual_photography_note"] = None
 
-        # Normalise visual_photography_note for all other drafts
         vn = d.get("visual_photography_note")
         if d.get("visual_photography_note") is not None:
             if not isinstance(vn, str) or not vn.strip():
@@ -565,16 +584,26 @@ def _validate_drafts(
         perspective_focus = d.get("perspective_focus")
 
         if hook_strategy is not None and hook_strategy not in _VALID_DIFFERENTIATION_STRATEGIES:
-            warnings.append(f"Draft ({platform}, v{variant}) declared unrecognised hook_strategy='{hook_strategy}'.")
+            warnings.append(
+                f"Draft ({platform}, v{variant}) declared unrecognised "
+                f"hook_strategy='{hook_strategy}'."
+            )
             hook_strategy = None
         if perspective_focus is not None and perspective_focus not in _VALID_DIFFERENTIATION_STRATEGIES:
-            warnings.append(f"Draft ({platform}, v{variant}) declared unrecognised perspective_focus='{perspective_focus}'.")
+            warnings.append(
+                f"Draft ({platform}, v{variant}) declared unrecognised "
+                f"perspective_focus='{perspective_focus}'."
+            )
             perspective_focus = None
         if hook_strategy is None or perspective_focus is None:
-            warnings.append(f"Draft ({platform}, v{variant}) missing hook_strategy or perspective_focus.")
+            warnings.append(
+                f"Draft ({platform}, v{variant}) missing hook_strategy or perspective_focus."
+            )
 
         strategies_by_platform.setdefault(platform, []).append({
-            "variant": variant, "hook_strategy": hook_strategy, "perspective_focus": perspective_focus,
+            "variant": variant,
+            "hook_strategy": hook_strategy,
+            "perspective_focus": perspective_focus,
         })
 
         body = d.get("body", "")
@@ -606,22 +635,34 @@ def _validate_drafts(
         v2 = next((d for d in declarations if d["variant"] == 2), None)
         if v1 is None or v2 is None:
             continue
-        if v1["hook_strategy"] and v2["hook_strategy"] and v1["hook_strategy"] == v2["hook_strategy"]:
-            warnings.append(f"Variant differentiation FAILED on {platform}: V1 and V2 both declared hook_strategy='{v1['hook_strategy']}'.")
-        if v1["perspective_focus"] and v2["perspective_focus"] and v1["perspective_focus"] == v2["perspective_focus"]:
-            warnings.append(f"Variant differentiation FAILED on {platform}: V1 and V2 both declared perspective_focus='{v1['perspective_focus']}'.")
+        if (v1["hook_strategy"] and v2["hook_strategy"]
+                and v1["hook_strategy"] == v2["hook_strategy"]):
+            warnings.append(
+                f"Variant differentiation FAILED on {platform}: V1 and V2 both declared "
+                f"hook_strategy='{v1['hook_strategy']}'."
+            )
+        if (v1["perspective_focus"] and v2["perspective_focus"]
+                and v1["perspective_focus"] == v2["perspective_focus"]):
+            warnings.append(
+                f"Variant differentiation FAILED on {platform}: V1 and V2 both declared "
+                f"perspective_focus='{v1['perspective_focus']}'."
+            )
 
     if len(strategies_by_platform) > 1:
         all_combos: list[tuple[str, tuple[str, str]]] = []
         for platform, declarations in strategies_by_platform.items():
             for d in declarations:
                 if d["hook_strategy"] and d["perspective_focus"]:
-                    all_combos.append((f"{platform} V{d['variant']}", (d["hook_strategy"], d["perspective_focus"])))
-
+                    all_combos.append(
+                        (f"{platform} V{d['variant']}", (d["hook_strategy"], d["perspective_focus"]))
+                    )
         seen_combos: dict[tuple[str, str], str] = {}
         for label, combo in all_combos:
             if combo in seen_combos:
-                warnings.append(f"Cross-platform soft-warning: {label} and {seen_combos[combo]} share same (hook, perspective) combo.")
+                warnings.append(
+                    f"Cross-platform soft-warning: {label} and {seen_combos[combo]} "
+                    f"share same (hook, perspective) combo."
+                )
             else:
                 seen_combos[combo] = label
 
@@ -631,7 +672,6 @@ def _validate_drafts(
 def _save_drafts(drafts: list[dict], angle_id: int, product_id: int) -> int:
     now   = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     count = 0
-
     with get_connection() as conn:
         for d in drafts:
             conn.execute(
@@ -657,7 +697,6 @@ def _save_drafts(drafts: list[dict], angle_id: int, product_id: int) -> int:
                 ),
             )
             count += 1
-
     return count
 
 
@@ -672,7 +711,11 @@ def _log_failed_response(raw_text: str) -> None:
 
 
 def _estimate_cost(input_tokens: int, output_tokens: int) -> float:
-    return round(input_tokens * _INPUT_COST_PER_TOKEN + output_tokens * _OUTPUT_COST_PER_TOKEN, 6)
+    return round(
+        input_tokens  * _INPUT_COST_PER_TOKEN +
+        output_tokens * _OUTPUT_COST_PER_TOKEN,
+        6,
+    )
 
 
 def _log_api_call(product_id, input_tokens, output_tokens, cost, notes=""):
@@ -684,13 +727,18 @@ def _log_api_call(product_id, input_tokens, output_tokens, cost, notes=""):
     with CSV_LOG_PATH.open("a", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         if write_header:
-            writer.writerow(["timestamp", "agent", "topic", "input_tokens", "output_tokens", "web_searches", "est_cost_usd"])
+            writer.writerow([
+                "timestamp", "agent", "topic", "input_tokens",
+                "output_tokens", "web_searches", "est_cost_usd",
+            ])
         writer.writerow([ts, "copywriter", action, input_tokens, output_tokens, 0, cost])
 
     try:
         with get_connection() as conn:
             conn.execute(
-                """INSERT INTO api_log (timestamp, agent, action, input_tokens, output_tokens, web_searches, est_cost_usd, notes)
+                """INSERT INTO api_log
+                   (timestamp, agent, action, input_tokens, output_tokens,
+                    web_searches, est_cost_usd, notes)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ts, "copywriter", action, input_tokens, output_tokens, 0, cost, notes),
             )
@@ -701,7 +749,8 @@ def _log_api_call(product_id, input_tokens, output_tokens, cost, notes=""):
 def _error_result(angle_id, angle_title, platforms, cost, error):
     return {
         "angle_id": angle_id, "angle_title": angle_title, "platforms": platforms,
-        "drafts_created": 0, "est_cost_usd": cost, "drafts": [], "warnings": [], "error": error,
+        "drafts_created": 0, "est_cost_usd": cost,
+        "drafts": [], "warnings": [], "error": error,
     }
 
 
@@ -717,7 +766,8 @@ def count_draft_stats(product_id: int) -> dict[str, Any]:
             by_status = {r["status"]: r["n"] for r in status_rows}
 
             total_approved = conn.execute(
-                "SELECT COUNT(*) FROM story_angles WHERE product_id = ? AND status IN ('approved', 'edited')",
+                """SELECT COUNT(*) FROM story_angles
+                   WHERE product_id = ? AND status IN ('approved', 'edited')""",
                 (product_id,),
             ).fetchone()[0]
 
@@ -733,13 +783,18 @@ def count_draft_stats(product_id: int) -> dict[str, Any]:
             by_platform = {r["platform"]: r["n"] for r in plat_rows}
 
         return {
-            "by_status": by_status, "total_approved": int(total_approved),
+            "by_status":      by_status,
+            "total_approved": int(total_approved),
             "drafted_angles": int(drafted_angles),
-            "waiting": max(0, int(total_approved) - int(drafted_angles)),
-            "by_platform": by_platform, "total_drafts": sum(by_status.values()),
+            "waiting":        max(0, int(total_approved) - int(drafted_angles)),
+            "by_platform":    by_platform,
+            "total_drafts":   sum(by_status.values()),
         }
     except Exception:
-        return {"by_status": {}, "total_approved": 0, "drafted_angles": 0, "waiting": 0, "by_platform": {}, "total_drafts": 0}
+        return {
+            "by_status": {}, "total_approved": 0, "drafted_angles": 0,
+            "waiting": 0, "by_platform": {}, "total_drafts": 0,
+        }
 
 
 def get_drafts_library(
@@ -751,7 +806,7 @@ def get_drafts_library(
     """Return drafts enriched with schedule state.
 
     Added columns vs raw drafts table:
-    - is_posted   (0|1): draft has a schedule entry with posted_at IS NOT NULL
+    - is_posted    (0|1): draft has a schedule entry with posted_at IS NOT NULL
     - is_scheduled (0|1): draft has a schedule entry with posted_at IS NULL (pending)
     """
     clauses: list[str] = ["d.product_id = ?"]
@@ -773,7 +828,7 @@ def get_drafts_library(
             rows = conn.execute(
                 f"""SELECT d.*,
                            COALESCE(sa.angle_title, sa.title, 'Untitled') AS angle_title,
-                           sa.cta_strength AS angle_cta_strength,
+                           sa.cta_strength  AS angle_cta_strength,
                            sa.platform_fit,
                            CASE WHEN EXISTS (
                                SELECT 1 FROM schedule s
@@ -795,7 +850,7 @@ def get_drafts_library(
 
 
 def delete_draft_permanently(draft_id: int) -> None:
-    """Hard-delete a draft and all linked rows (schedule entries, editor reviews, media briefs).
+    """Hard-delete a draft and all linked rows (schedule, editor_reviews, media_briefs).
 
     Safe to call on drafts that have no linked rows — the DELETEs are no-ops.
     """
@@ -809,8 +864,8 @@ def delete_draft_permanently(draft_id: int) -> None:
 def get_editor_review_status(product_id: int) -> dict[int, str]:
     """Return {draft_id: overall_status} for all editor-reviewed drafts of this product.
 
-    Only the most recent review per draft is kept (rows ordered DESC by id).
-    Returns empty dict on any DB error — callers treat missing keys as 'not reviewed'.
+    Only the most recent review per draft is kept.
+    Returns empty dict on any DB error.
     """
     try:
         with get_connection() as conn:
@@ -886,62 +941,3 @@ def get_angle_draft_coverage(product_id: int) -> list[dict]:
         return [dict(r) for r in rows]
     except Exception:
         return []
-
-def delete_draft_permanently(draft_id: int) -> None:
-    """Hard-delete a draft and all linked rows (schedule entries, editor reviews, media briefs)."""
-    with get_connection() as conn:
-        conn.execute("DELETE FROM schedule       WHERE draft_id = ?", (draft_id,))
-        conn.execute("DELETE FROM editor_reviews WHERE draft_id = ?", (draft_id,))
-        conn.execute("DELETE FROM media_briefs   WHERE draft_id = ?", (draft_id,))
-        conn.execute("DELETE FROM drafts         WHERE id       = ?", (draft_id,))
-
-
-def get_editor_review_status(product_id: int) -> dict[int, str]:
-    """Return {draft_id: overall_status} for all editor-reviewed drafts of this product."""
-    try:
-        with get_connection() as conn:
-            rows = conn.execute(
-                """SELECT er.draft_id, er.overall_status
-                   FROM editor_reviews er
-                   JOIN drafts d ON d.id = er.draft_id
-                   WHERE d.product_id = ?
-                   ORDER BY er.id DESC""",
-                (product_id,),
-            ).fetchall()
-        result = {}
-        for row in rows:
-            if row["draft_id"] not in result:
-                result[row["draft_id"]] = row["overall_status"]
-        return result
-    except Exception:
-        return {}
-
-
-def delete_draft_permanently(draft_id: int) -> None:
-    """Hard-delete a draft and all linked rows (schedule entries, editor reviews, media briefs)."""
-    with get_connection() as conn:
-        conn.execute("DELETE FROM schedule       WHERE draft_id = ?", (draft_id,))
-        conn.execute("DELETE FROM editor_reviews WHERE draft_id = ?", (draft_id,))
-        conn.execute("DELETE FROM media_briefs   WHERE draft_id = ?", (draft_id,))
-        conn.execute("DELETE FROM drafts         WHERE id       = ?", (draft_id,))
-
-
-def get_editor_review_status(product_id: int) -> dict[int, str]:
-    """Return {draft_id: overall_status} for all editor-reviewed drafts of this product."""
-    try:
-        with get_connection() as conn:
-            rows = conn.execute(
-                """SELECT er.draft_id, er.overall_status
-                   FROM editor_reviews er
-                   JOIN drafts d ON d.id = er.draft_id
-                   WHERE d.product_id = ?
-                   ORDER BY er.id DESC""",
-                (product_id,),
-            ).fetchall()
-        result = {}
-        for row in rows:
-            if row["draft_id"] not in result:
-                result[row["draft_id"]] = row["overall_status"]
-        return result
-    except Exception:
-        return {}
