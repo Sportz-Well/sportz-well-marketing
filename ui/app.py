@@ -341,22 +341,26 @@ for i, day in enumerate(_week_days):
 
         plat  = _PLAT.get(p["platform"].lower(), p["platform"].upper()[:4])
         head  = (p["headline"] or "Untitled")[:42]
-        pills += f"""
-        <div class="{pill_cls}">
-            <div class="pill-plat">{plat}</div>
-            <div class="pill-text">{head}</div>
-            {st_html}
-        </div>"""
+        # Single-line HTML — multi-line f-strings create 4+ space indentation
+        # which Streamlit's markdown parser treats as code blocks before HTML renders.
+        pills += (
+            f'<div class="{pill_cls}">'
+            f'<div class="pill-plat">{plat}</div>'
+            f'<div class="pill-text">{head}</div>'
+            f'{st_html}'
+            f'</div>'
+        )
 
     if not pills:
         pills = '<div class="day-empty">—</div>'
 
-    cols_html += f"""
-    <div class="{cls}">
-        <div class="day-name">{_DAY_NAMES[i]}{today_dot}</div>
-        <div class="day-num">{day.day}</div>
-        {pills}
-    </div>"""
+    cols_html += (
+        f'<div class="{cls}">'
+        f'<div class="day-name">{_DAY_NAMES[i]}{today_dot}</div>'
+        f'<div class="day-num">{day.day}</div>'
+        f'{pills}'
+        f'</div>'
+    )
 
 st.markdown(
     f'<div class="sw-lbl">THIS WEEK</div>'
