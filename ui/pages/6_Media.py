@@ -134,7 +134,7 @@ with tab_gen:
             FROM   drafts d
             JOIN   story_angles sa ON sa.id = d.story_angle_id
             LEFT   JOIN media_briefs mb ON mb.draft_id = d.id
-            WHERE  d.product_id = ?
+            WHERE  d.product_id = %s
             ORDER  BY has_brief ASC, d.id ASC
             """,
             (product_id,),
@@ -255,7 +255,8 @@ with tab_lib:
         "Paste directly into Firefly, ChatGPT, or Gemini."
     )
 
-    fcol1, fcol2 = st.columns(2)
+    # ── Filters ───────────────────────────────────────────────────────────
+    fcol1, fcol2, fcol3 = st.columns(3)
     with fcol1:
         status_filter = st.selectbox(
             "Filter by status",
@@ -268,15 +269,41 @@ with tab_lib:
             ["all", "instagram", "facebook", "linkedin"],
             key="lib_platform",
         )
+    with fcol3:
+        hide_posted = st.checkbox(
+            "Hide posted drafts",
+            value=True,
+            key="lib_hide_posted",
+            help="Hides prompts for drafts that have already been published (marked as posted).",
+        )
 
+    # ── Fetch briefs ──────────────────────────────────────────────────────
     briefs = get_media_library(
         product_id,
         status_filter=None if status_filter == "all" else status_filter,
         platform_filter=None if platform_filter == "all" else platform_filter,
     )
 
+    # ── Filter out posted drafts if requested ─────────────────────────────
+    if hide_posted and briefs:
+        conn = get_connection()
+        try:
+            posted_rows = conn.execute(
+                "SELECT DISTINCT draft_id FROM schedule WHERE posted_at IS NOT NULL"
+            ).fetchall()
+        finally:
+            conn.close()
+        posted_ids = {r[0] for r in posted_rows}
+        briefs = [b for b in briefs if b["draft_id"] not in posted_ids]
+
     if not briefs:
-        st.info("No prompts found. Generate some in the Generate tab.")
+        if hide_posted:
+            st.info(
+                "No prompts to show. All generated prompts belong to posted drafts. "
+                "Untick 'Hide posted drafts' to see them."
+            )
+        else:
+            st.info("No prompts found. Generate some in the Generate tab.")
     else:
         st.caption(f"{len(briefs)} brief(s) found.")
 
@@ -437,7 +464,7 @@ with tab_pipe:
             FROM   drafts d
             JOIN   story_angles sa ON sa.id = d.story_angle_id
             LEFT   JOIN media_briefs mb ON mb.draft_id = d.id
-            WHERE  d.product_id = ?
+            WHERE  d.product_id = %s
             ORDER  BY d.id ASC
             """,
             (product_id,),
