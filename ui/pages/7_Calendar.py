@@ -4,7 +4,8 @@ Prompt 8: Scheduler Agent UI
 
 Three tabs:
   Tab 1 — Schedule a Draft   : pick approved draft → pick date/time → confirm
-  Tab 2 — Calendar View      : week/month grid, mark as posted, unschedule
+  Tab 2 — Calendar View      : week/month grid, mark as posted, unschedule,
+                                log engagement (likes/comments/shares) on posted entries
   Tab 3 — Pipeline Overview  : approved drafts: scheduled vs unscheduled counts
 """
 
@@ -22,6 +23,8 @@ from agents.scheduler import (
     get_scheduled_drafts,
     get_pipeline_summary,
     get_approved_unscheduled_drafts,
+    record_performance,
+    get_latest_performance_for_draft,
 )
 
 # ─── page config ─────────────────────────────────────────────────────────────
@@ -186,6 +189,7 @@ with tab2:
 
             for entry in day_entries:
                 schedule_id  = entry["schedule_id"]
+                draft_id     = entry["draft_id"]
                 posted       = entry["posted_at"] is not None
                 platform     = entry["platform"].capitalize()
                 variant      = entry["variant_number"]
@@ -196,10 +200,8 @@ with tab2:
                 # Status badge
                 if posted:
                     badge = "✅ Posted"
-                    card_color = "#e8f5e9"
                 else:
                     badge = "⏳ Pending"
-                    card_color = "#fff8e1"
 
                 with st.container(border=True):
                     col_info, col_actions = st.columns([3, 1])
@@ -262,6 +264,63 @@ with tab2:
                                     st.rerun()
                                 else:
                                     st.error(result["error"])
+
+                        else:
+                            # ── Performance tracking (posted entries only) ──
+                            latest_perf = get_latest_performance_for_draft(draft_id)
+
+                            if latest_perf:
+                                st.markdown(
+                                    f"📊 **{latest_perf['likes']}** likes · "
+                                    f"**{latest_perf['comments']}** comments · "
+                                    f"**{latest_perf['shares']}** shares"
+                                )
+                                st.caption(f"Last checked: {latest_perf['recorded_at'][:16].replace('T', ' ')}")
+                            else:
+                                st.caption("No engagement logged yet.")
+
+                            with st.expander("📊 Log Engagement"):
+                                st.caption(
+                                    "Check the live post on FB/IG/LinkedIn and enter what you see. "
+                                    "You can log this more than once — check again in a few days "
+                                    "to track growth."
+                                )
+                                pcol1, pcol2, pcol3 = st.columns(3)
+                                with pcol1:
+                                    likes_in = st.number_input(
+                                        "Likes", min_value=0, value=0, step=1,
+                                        key=f"likes_{schedule_id}",
+                                    )
+                                with pcol2:
+                                    comments_in = st.number_input(
+                                        "Comments", min_value=0, value=0, step=1,
+                                        key=f"comments_{schedule_id}",
+                                    )
+                                with pcol3:
+                                    shares_in = st.number_input(
+                                        "Shares", min_value=0, value=0, step=1,
+                                        key=f"shares_{schedule_id}",
+                                    )
+
+                                if st.button(
+                                    "💾 Log Engagement",
+                                    key=f"logperf_{schedule_id}",
+                                    use_container_width=True,
+                                    type="primary",
+                                ):
+                                    result = record_performance(
+                                        schedule_id,
+                                        likes=likes_in,
+                                        comments=comments_in,
+                                        shares=shares_in,
+                                    )
+                                    if result["ok"]:
+                                        st.success(
+                                            f"Logged — {result['engagement_total']} total engagement."
+                                        )
+                                        st.rerun()
+                                    else:
+                                        st.error(result["error"])
 
             st.divider()
 
