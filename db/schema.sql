@@ -204,3 +204,21 @@ CREATE TABLE IF NOT EXISTS schedule (
     posted_manually INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_schedule_scheduled_for ON schedule(scheduled_for);
+
+-- ─── PERFORMANCE TRACKING (added 2026-06-29) ───────────────────────────────
+-- Manual engagement entry per posted draft. No platform API pulls this
+-- automatically — Jitendra types in the numbers he sees on FB/IG/LinkedIn.
+-- Multiple snapshots per schedule_id are allowed on purpose: check a post's
+-- numbers the day it goes live, then again a few days later to see growth.
+-- This is the feedback loop the Strategist currently has no access to.
+
+CREATE TABLE IF NOT EXISTS post_performance (
+    id            SERIAL  PRIMARY KEY,
+    schedule_id   INTEGER NOT NULL REFERENCES schedule(id) ON DELETE CASCADE,
+    likes         INTEGER NOT NULL DEFAULT 0,
+    comments      INTEGER NOT NULL DEFAULT 0,
+    shares        INTEGER NOT NULL DEFAULT 0,
+    notes         TEXT,
+    recorded_at   TEXT    NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
+);
+CREATE INDEX IF NOT EXISTS idx_post_performance_schedule ON post_performance(schedule_id);
