@@ -17,12 +17,20 @@ record_performance(schedule_id, ...)           → dict  log an engagement snaps
 get_performance_for_draft(draft_id)            → list  full snapshot history
 get_latest_performance_for_draft(draft_id)     → dict | None  most recent snapshot
 
-NOTE (2026-06-29): This file previously used sqlite3-only patterns
-(conn.row_factory = sqlite3.Row, dict-key row access, cursor.lastrowid) that
-do not exist on the Postgres connection this app now runs on. Fixed throughout
-— all row access is now positional (tuple indexing), matching the pattern
-already proven working in 6_Media.py. INSERTs use RETURNING id instead of
-lastrowid, which is the correct Postgres convention.
+NOTE (2026-06-29): Removed sqlite3-only patterns (conn.row_factory =
+sqlite3.Row, dict-key row access, cursor.lastrowid) — none of those exist on
+the Postgres connection this app runs on. All row access is positional
+(tuple indexing). INSERTs use RETURNING id instead of lastrowid.
+
+NOTE (2026-06-30): Removed the _row_to_dict(cursor, row) helper that relied
+on cursor.description. This crashed in production with AttributeError —
+this app's database wrapper does not expose that attribute the way a
+standard DB-API cursor would. Every function that returns list[dict] now
+builds dicts via explicit positional mapping instead, the same technique
+already proven working in record_performance / get_performance_for_draft
+(tested live against Supabase on 2026-06-30) and in mark_as_posted (used
+successfully in production the same day). No function in this file depends
+on cursor.description anymore.
 """
 
 from datetime import datetime, timezone
@@ -34,12 +42,6 @@ from services.database import get_connection
 def _now_iso() -> str:
     """UTC timestamp in ISO 8601 format."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-
-
-def _row_to_dict(cursor, row) -> dict:
-    """Backend-agnostic dict conversion using cursor.description. Works the
-    same whether the underlying driver is sqlite3 or psycopg2."""
-    return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
 
 
 def _ok(data: dict) -> dict:
@@ -235,23 +237,12 @@ def get_scheduled_drafts(start_date: str, end_date: str) -> list[dict]:
     end_dt   = f"{end_date}T23:59:59"
 
     with get_connection() as conn:
-        cursor = conn.execute(
+        rows = conn.execute(
             """
             SELECT
-                s.id            AS schedule_id,
-                s.draft_id,
-                s.scheduled_for,
-                s.posted_at,
-                s.posted_manually,
-                d.platform,
-                d.variant_number,
-                d.content_format,
-                d.headline,
-                d.body,
-                d.cta_line,
-                d.status        AS draft_status,
-                d.product_id,
-                sa.angle_title
+                s.id, s.draft_id, s.scheduled_for, s.posted_at, s.posted_manually,
+                d.platform, d.variant_number, d.content_format, d.headline,
+                d.body, d.cta_line, d.status, d.product_id, sa.angle_title
             FROM schedule s
             JOIN drafts d       ON d.id = s.draft_id
             LEFT JOIN story_angles sa ON sa.id = d.story_angle_id
@@ -259,40 +250,65 @@ def get_scheduled_drafts(start_date: str, end_date: str) -> list[dict]:
             ORDER BY s.scheduled_for ASC
             """,
             (start_dt, end_dt)
-        )
-        rows = cursor.fetchall()
-        return [_row_to_dict(cursor, r) for r in rows]
+        ).fetchall()
+
+        return [
+            {
+                "schedule_id":     r[0],
+                "draft_id":        r[1],
+                "scheduled_for":   r[2],
+                "posted_at":       r[3],
+                "posted_manually": r[4],
+                "platform":        r[5],
+                "variant_number":  r[6],
+                "content_format":  r[7],
+                "headline":        r[8],
+                "body":            r[9],
+                "cta_line":        r[10],
+                "draft_status":    r[11],
+                "product_id":      r[12],
+                "angle_title":     r[13],
+            }
+            for r in rows
+        ]
 
 
 def get_schedule_entry(schedule_id: int) -> dict | None:
     """Return a single schedule row with draft details, or None if not found."""
     with get_connection() as conn:
-        cursor = conn.execute(
+        row = conn.execute(
             """
             SELECT
-                s.id            AS schedule_id,
-                s.draft_id,
-                s.scheduled_for,
-                s.posted_at,
-                s.posted_manually,
-                d.platform,
-                d.variant_number,
-                d.content_format,
-                d.headline,
-                d.body,
-                d.cta_line,
-                d.status        AS draft_status,
-                d.product_id,
-                sa.angle_title
+                s.id, s.draft_id, s.scheduled_for, s.posted_at, s.posted_manually,
+                d.platform, d.variant_number, d.content_format, d.headline,
+                d.body, d.cta_line, d.status, d.product_id, sa.angle_title
             FROM schedule s
             JOIN drafts d       ON d.id = s.draft_id
             LEFT JOIN story_angles sa ON sa.id = d.story_angle_id
             WHERE s.id = ?
             """,
             (schedule_id,)
-        )
-        row = cursor.fetchone()
-        return _row_to_dict(cursor, row) if row else None
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "schedule_id":     row[0],
+            "draft_id":        row[1],
+            "scheduled_for":   row[2],
+            "posted_at":       row[3],
+            "posted_manually": row[4],
+            "platform":        row[5],
+            "variant_number":  row[6],
+            "content_format":  row[7],
+            "headline":        row[8],
+            "body":            row[9],
+            "cta_line":        row[10],
+            "draft_status":    row[11],
+            "product_id":      row[12],
+            "angle_title":     row[13],
+        }
 
 
 def get_pipeline_summary(product_id: int) -> dict:
@@ -368,16 +384,11 @@ def get_approved_unscheduled_drafts(product_id: int) -> list[dict]:
     Used by Tab 1 (Schedule a Draft) to populate the dropdown.
     """
     with get_connection() as conn:
-        cursor = conn.execute(
+        rows = conn.execute(
             """
             SELECT
-                d.id            AS draft_id,
-                d.platform,
-                d.variant_number,
-                d.content_format,
-                d.headline,
-                d.body,
-                sa.angle_title
+                d.id, d.platform, d.variant_number, d.content_format,
+                d.headline, d.body, sa.angle_title
             FROM drafts d
             LEFT JOIN story_angles sa ON sa.id = d.story_angle_id
             WHERE d.product_id = ?
@@ -386,9 +397,20 @@ def get_approved_unscheduled_drafts(product_id: int) -> list[dict]:
             ORDER BY d.id ASC
             """,
             (product_id,)
-        )
-        rows = cursor.fetchall()
-        return [_row_to_dict(cursor, r) for r in rows]
+        ).fetchall()
+
+        return [
+            {
+                "draft_id":       r[0],
+                "platform":       r[1],
+                "variant_number": r[2],
+                "content_format": r[3],
+                "headline":       r[4],
+                "body":           r[5],
+                "angle_title":    r[6],
+            }
+            for r in rows
+        ]
 
 
 # ─── performance tracking (added 2026-06-29) ───────────────────────────────
@@ -478,7 +500,7 @@ def get_performance_for_draft(draft_id: int) -> list[dict]:
     or has no recorded snapshots yet.
     """
     with get_connection() as conn:
-        cursor = conn.execute(
+        rows = conn.execute(
             """
             SELECT pp.id, pp.schedule_id, pp.likes, pp.comments, pp.shares,
                    pp.notes, pp.recorded_at
@@ -488,8 +510,7 @@ def get_performance_for_draft(draft_id: int) -> list[dict]:
             ORDER BY pp.recorded_at ASC
             """,
             (draft_id,)
-        )
-        rows = cursor.fetchall()
+        ).fetchall()
 
         results = []
         for r in rows:
