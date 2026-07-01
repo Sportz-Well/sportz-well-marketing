@@ -1,20 +1,70 @@
 # CLAUDE.md
 ## Source of truth for anyone (including future Claude sessions) working on this codebase.
-## Read this first. Always.
+## Read this first. Always. Completely. Before touching anything.
+
+---
+
+## Who You Are Working With
+
+**Jitendra Sonu Jagdale** — non-technical founder. Mumbai cricketer, MCA Match
+Observer, Shardashram alumnus. Building a billion-dollar company. Decisive, moves
+fast, respects straight talk. Does NOT want to be coddled. If an idea is weak, say
+so directly.
+
+**Your role in every session:** CTO co-founder, friend, and mentor.
+- Be patient. Give step-by-step instructions for every task he runs.
+- Never sugarcoat. Test everything until you both agree it is bulletproof.
+- Maximize every chat — no padding, no repetition.
+- Jitendra is non-technical. Never assume he knows what a command does. Explain it.
+- He thinks in weeks and tasks, not pipeline stages. Always frame things his way.
+
+**Your working relationship:** Claude and Jitendra have worked together across
+multiple sessions. Claude designed the entire architecture, built every agent, fixed
+every production bug, wrote all documentation, and acts as the technical brain.
+Jitendra executes, tests, makes business calls, and runs all terminal commands.
+This is a genuine co-founder dynamic — the trust is earned, the directness is mutual.
+
+---
+
+## Working Rules — Non-Negotiable, Every Session
+
+1. **Plan-and-paste mode:** Claude plans and delivers complete files. Jitendra runs
+   all PowerShell commands himself. Never give instructions that require him to
+   write or modify code manually.
+2. **Whole files only:** Any change to an existing file = recode the WHOLE file as
+   a downloadable artifact. Never inline partial code snippets in chat.
+3. **New files:** Label clearly "NEW FILE", deliver whole file as artifact.
+4. **Maximum 2 files per session.** No exceptions without explicit agreement.
+5. **Always request the real current file** before editing. Never reconstruct from
+   memory. Jitendra pastes the file → Claude reviews → Claude delivers updated version.
+6. **Always provide a git commit message** after every file change.
+7. **Always provide PowerShell commands** step by step with plain-English explanation.
+8. **End every session** with exactly 2 options for next steps + recommendation with
+   clear reasoning.
+9. **Verify saves** with `Get-Content path\to\file.py | Select-Object -Last 20`
+   before committing. "Nothing to commit, working tree clean" often means the file
+   wasn't saved to the correct path — not that it was already committed.
+10. **No PDF files** — .md only for all documents.
+11. **Full file path always:** e.g. `C:\Users\Dell\sportz-well-marketing\agents\scheduler.py`
+12. **Parameterised SQL always.** Never string concatenation in queries.
+13. **Confirm features before building.** No surprises.
+14. **If app crashes with circular import:** fix directly on GitHub.com browser
+    editor, not locally.
+15. **PowerShell encoding rule:** Never use `Add-Content` to append to `.py` files.
+    Always use the full downloadable artifact method.
 
 ---
 
 ## Product Vision — Three Phases
 
 **Phase 1 (COMPLETE + IN PRODUCTION):**
-Internal AI-powered social media content pipeline for SWPI (Sportz-Well Performance
-Intelligence). Single client, deployed on Streamlit Cloud, founder operates manually.
-In production since June 5, 2026. First LinkedIn posts live.
+Internal AI-powered social media content pipeline for SWPI. Single client, deployed
+on Streamlit Cloud, founder operates manually. Live since June 2026.
 
-**Phase 2 (after 2026-06-19):**
+**Phase 2 (next — gated until stable):**
 Onboard external clients. First candidate: Saviour Rescuevator (fire evacuation lifts).
 Schema supports multi-tenancy — add rows, don't fork code.
-Do NOT start until SWPI has been in production for at least 2 weeks (gate: June 19, 2026).
+Gate: SWPI must be in stable production for at least 2 weeks first.
 
 **Phase 3 (future):**
 SaaS product. Meta Graph API, multi-user auth, billing. Not before Phase 2 stable.
@@ -24,7 +74,7 @@ SaaS product. Meta Graph API, multi-user auth, billing. Not before Phase 2 stabl
 ## The Product
 
 An AI-powered social media content pipeline for SWPI — a monthly AI-driven player
-development platform for grassroots cricket academies (U10-U17 players in Indian cities).
+development platform for grassroots cricket academies (U10–U17 players in Indian cities).
 
 - **Primary buyers:** Academy directors and head coaches (B2B institutional sale)
 - **CTA:** Book a demo at sportz-well.com
@@ -32,8 +82,8 @@ development platform for grassroots cricket academies (U10-U17 players in Indian
 - **GitHub:** https://github.com/Sportz-Well/sportz-well-marketing (public)
 - **V1 posting model:** App does NOT post automatically. Drafts → copy-paste into
   Meta Business Suite (FB/IG) and LinkedIn directly.
-- **LinkedIn rule:** Post body contains NO SWPI mention. First comment posted
-  immediately after publishing contains SWPI product mention + sportz-well.com.
+- **LinkedIn rule:** Post body contains NO SWPI mention (thought leadership only).
+  First comment posted immediately after = SWPI product mention + sportz-well.com.
 - **V2 (later):** Direct API posting via Meta Graph API after Meta App Review.
 
 ---
@@ -42,39 +92,75 @@ development platform for grassroots cricket academies (U10-U17 players in Indian
 
 - **Language:** Python 3.11+
 - **UI:** Streamlit (non-technical founder — fastest way to ship a working UI)
-- **Database:** PostgreSQL on Supabase (project: kkepmacwjfuoczbbfroi — Seoul region)
+- **Database:** PostgreSQL on Supabase (Seoul region)
 - **AI:** Anthropic Python SDK, wrapped in `services/anthropic_client.py`
-- **Model:** `claude-sonnet-4-6` — Claude Sonnet 4.6 by Anthropic
-- **Web search:** Built-in Anthropic web search tool (used by Researcher agent only)
-- **Research cost:** ~₹30 per topic (6 items) | ~₹60/week | ~₹240/month
+- **Model:** `claude-sonnet-4-6` — set in anthropic_client.py, never hardcode elsewhere
+- **Web search:** Built-in Anthropic web search tool (Researcher agent only)
 - **Environment:** Windows, PowerShell, VS Code, virtual env at `.venv`
 - **Run command:** `streamlit run ui/app.py` from project root
 - **Deploy:** Push to master branch → Streamlit Cloud auto-deploys in ~2 minutes
-- **Secrets:** ANTHROPIC_API_KEY and DATABASE_URL in Streamlit Cloud Secrets
+- **Secrets:** ANTHROPIC_API_KEY and DATABASE_URL in Streamlit Cloud Secrets only
 
 ---
 
-## Critical API Conventions
+## Critical API Conventions — Read Before Touching Any Agent
 
+### Anthropic wrapper
 `ask_with_usage()` in `services/anthropic_client.py`:
-- Takes: `system_prompt` (not `system`) and `user_prompt` (not `user`)
+- Takes: `system_prompt=` and `user_prompt=` (NOT `system=` / `user=`)
 - Returns: dict with keys `text`, `input_tokens`, `output_tokens`, `web_searches`, `error`
-- NEVER unpack as a tuple — this bug has been hit before
+- **NEVER unpack as a tuple** — this bug has been hit before
 
+### Brand context
 `get_active_product()` in `services/brand_context.py`:
 - Returns dict with `product_id` (NOT `id`) and `product_name` (NOT `name`)
 - Every page and agent must use these exact keys
 
-**PostgreSQL rules (all agents):**
-- No `INSERT OR REPLACE INTO` → use `INSERT INTO ... ON CONFLICT ... DO UPDATE`
-- No `datetime('now')` → use `datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")`
-- No `import sqlite3` anywhere → use `except Exception:` not `except sqlite3.OperationalError:`
-- `?` placeholders auto-convert to `%s` in `services/database.py`
+### PostgreSQL rules — CRITICAL (all agents)
 
-**INR display rule (all pages):**
-- Import `format_cost_inr` from `services/page_utils`
-- `USD_TO_INR = 95` constant lives in `services/page_utils.py`
-- Never display raw USD to the user — always convert via `format_cost_inr(usd)`
+These SQLite-only patterns are **broken** in production on Supabase:
+
+| ❌ BROKEN (SQLite only) | ✅ CORRECT (PostgreSQL) |
+|------------------------|------------------------|
+| `import sqlite3` | Don't import sqlite3 at all |
+| `conn.row_factory = sqlite3.Row` | Don't use row_factory |
+| `row["column_name"]` dict access | `row[0]`, `row[1]` positional access |
+| `cursor.lastrowid` | `RETURNING id` in INSERT, then `.fetchone()[0]` |
+| `cursor.description` | Do not use — AttributeError in production |
+| `INSERT OR REPLACE INTO` | `INSERT INTO ... ON CONFLICT ... DO UPDATE` |
+| `datetime('now')` | `datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")` |
+
+**Use `?` placeholders** — `services/database.py` auto-converts to `%s` for psycopg2.
+
+**Row access pattern (proven working in production):**
+```python
+rows = conn.execute(
+    "SELECT id, name, status FROM my_table WHERE product_id = ?",
+    (product_id,)
+).fetchall()
+for r in rows:
+    my_id     = r[0]
+    my_name   = r[1]
+    my_status = r[2]
+```
+
+**INSERT with returned ID:**
+```python
+result = conn.execute(
+    "INSERT INTO my_table (col1, col2) VALUES (?, ?) RETURNING id",
+    (val1, val2)
+).fetchone()
+conn.commit()
+new_id = result[0]
+```
+
+### INR display rule
+Always display costs in INR, never raw USD:
+```python
+from services.page_utils import format_cost_inr
+st.metric("Cost", format_cost_inr(cost_usd))
+```
+`USD_TO_INR = 95` lives in `services/page_utils.py`.
 
 ---
 
@@ -88,7 +174,7 @@ Strategist   → story_angles table
 Copywriter   → drafts table
 Editor       → editor_reviews table
 Media        → media_briefs table (ZERO API COST — template-based)
-Scheduler    → schedule table
+Scheduler    → schedule table + post_performance table
 Orchestrator → calls all agents, no own table
 ```
 
@@ -97,51 +183,55 @@ brand-specific lives in the `brand_profiles` table, keyed by client.
 
 ---
 
-## Repository Layout (current state as of 2026-06-28)
+## Repository Layout (current state as of 2026-06-30)
 
 ```
 agents/
-  researcher.py    ✅ BCCI/IPL hard cap at 4/10; sqlite3 refs removed
-  strategist.py    ✅
-  copywriter.py    ✅ duplicate functions removed (delete_draft_permanently,
-                      get_editor_review_status each now defined exactly once)
-  editor.py        ✅ sqlite3 refs removed
+  researcher.py    ✅ Live
+  strategist.py    ✅ Live
+  copywriter.py    ✅ Live
+  editor.py        ✅ Live
   media.py         ✅ ZERO COST — template-based, no API calls
-  scheduler.py     ✅
+  scheduler.py     ✅ FULLY REWRITTEN 2026-06-30:
+                      - sqlite3 bugs removed throughout
+                      - cursor.description dependency removed
+                      - New: record_performance(), get_performance_for_draft(),
+                        get_latest_performance_for_draft()
 db/
-  schema.sql       ✅ canonical schema
+  schema.sql       ✅ post_performance table added 2026-06-30
   init_db.py       ✅ creates DB, auto-migrates
 ui/
-  app.py           ✅ warm slate theme (#0f172a bg, #1e293b cards, #334155 borders)
+  app.py           ✅ REDESIGNED 2026-06-30: "This Week" command centre
+                      (Mon–Sun week grid, plain-English to-do list, week stats)
   pages/
     1_Brand_Brain.py    ✅
-    2_Research.py       ✅ INR display throughout; Researcher spend card (Today/Month/All time)
-    3_Strategy.py       ✅ week picker on Story Angles Library; auto-hide completed angles;
-                           delete buttons with cascade; Strategy spend card in Tab C
-    4_Drafts.py         ✅ delete buttons on every card; Copywriter spend card;
-                           warm slate colours; format_cost_inr throughout
-    5_Editor.py         ✅ bulk "Review All Unreviewed" button; full draft content shown
-                           in Tab A alongside issues (no more back-and-forth to Drafts)
-    6_Media.py          ⚠️  MISSING: no "hide posted drafts" toggle — posted media briefs
-                           still visible. Fix is NEXT PRIORITY.
-    7_Calendar.py       ✅
-    8_Orchestrator.py   ✅ INR display; consolidated spend dashboard (all agents)
+    2_Research.py       ✅ INR display throughout
+    3_Strategy.py       ✅ Week picker, auto-hide completed, delete buttons
+    4_Drafts.py         ✅ Delete buttons, spend card, warm slate
+    5_Editor.py         ✅ Bulk review, full draft content inline
+    6_Media.py          ✅ FIXED 2026-06-30: "Hide posted drafts" toggle added
+    7_Calendar.py       ✅ UPDATED 2026-06-30: Engagement logging UI on posted
+                           entries (likes/comments/shares → post_performance table)
+    8_Orchestrator.py   ✅ INR display, consolidated spend dashboard
 services/
   anthropic_client.py   ✅
   database.py           ✅ PostgreSQL wrapper with ? → %s auto-conversion
   brand_context.py      ✅
   url_validator.py      ✅
   source_preferences.py ✅
-  page_utils.py         ✅ warm slate theme CSS; USD_TO_INR=95; format_cost_inr() helper
+  page_utils.py         ✅ warm slate theme CSS; USD_TO_INR=95; format_cost_inr()
 tests/
   test_editor_parser.py ✅ 18 smoke tests, all passing
+CLAUDE.md                ✅ this file
+TECH_REFERENCE_FOR_AI_AGENTS.md  ✅ added 2026-06-30 (tech stack doc for agents)
+SWPI_Content_Strategy_Audit_2026-06-29.md  ✅ strategic audit doc
 ```
 
 ---
 
-## Theme — Warm Slate Palette (applied 2026-06-28)
+## Theme — Warm Slate Palette
 
-All pages now use warm slate. The old cold near-black palette is gone.
+All pages use warm slate. No cold dark colours.
 
 | Element | Colour |
 |---|---|
@@ -149,98 +239,136 @@ All pages now use warm slate. The old cold near-black palette is gone.
 | Cards / containers | `#1e293b` |
 | Borders | `#334155` |
 | Primary text | `#f1f5f9` |
-| Muted text / labels | `#94a3b8` |
+| Muted text | `#94a3b8` |
 | Captions | `#64748b` |
-| Gold accent | `#f5a623` (unchanged) |
+| Gold accent | `#f5a623` |
 | Font | Rajdhani (headings) + Inter (body) |
 
-Home page (`app.py`) has CSS hardcoded directly (does not use `init_page()`).
-All inner pages use `init_page()` from `services/page_utils.py`.
+Home page (`app.py`) has CSS hardcoded directly. All inner pages use `init_page()`
+from `services/page_utils.py`.
 
 ---
 
-## What Was Done — Session 2026-06-28
+## DB Tables (complete as of 2026-06-30)
 
-### UX overhaul (Option A)
+| Table | Owner |
+|-------|-------|
+| organizations | Brand Brain |
+| products | Brand Brain |
+| product_phases | Brand Brain |
+| brand_profiles | Brand Brain |
+| partner_brands | Brand Brain |
+| content_rules | Brand Brain |
+| research_items | Researcher |
+| api_log | All agents |
+| story_angles | Strategist |
+| drafts | Copywriter |
+| editor_reviews | Editor |
+| media_briefs | Media |
+| schedule | Scheduler |
+| post_performance | Scheduler ← NEW 2026-06-30 |
 
-**`services/page_utils.py`** — cold dark palette replaced with warm slate. Applied globally
-to all inner pages via `init_page()`.
+---
 
-**`ui/app.py`** — home page CSS updated to match inner pages. Previous CSS used cold `#080810`
-background. Now uses `#0f172a` and full warm slate palette.
+## What Was Completed — Session 2026-06-29 to 2026-06-30
 
-**`ui/pages/5_Editor.py`**
-- Bulk "Review All Unreviewed" button with progress bar (Tab A top)
-- Full draft content display in Tab A — headline, body, CTA, hashtags shown when you
-  select a draft. Copy helpers embedded. No more going back to Drafts page to read the post.
-- `format_cost_inr` throughout
-- `review_draft` and `rereview_draft` moved to top-level imports
+### Code shipped
+- **Home page redesign** (`app.py`): Replaced pipeline dashboard with "This Week"
+  command centre — Mon–Sun week grid, numbered to-do list, week stats
+- **Media page fix** (`6_Media.py`): Added "Hide posted drafts" toggle (default ON)
+- **Performance feedback loop** (full stack):
+  - `schema.sql`: New `post_performance` table
+  - `scheduler.py`: Completely rewritten — fixed all sqlite3/Postgres bugs;
+    added `record_performance()`, `get_performance_for_draft()`,
+    `get_latest_performance_for_draft()`
+  - `7_Calendar.py`: Engagement logging UI on every posted entry
+- **TECH_REFERENCE_FOR_AI_AGENTS.md**: Created — technical onboarding doc
 
-**`ui/pages/3_Strategy.py`**
-- Week picker on Story Angles Library — defaults to current week
-- Auto-hide completed angles (all drafts posted) — "Show completed" checkbox to reveal
-- Delete button 🗑️ on every angle card — arm/confirm pattern, cascade deletes
-- Restore button on rejected angles
-- `_get_strategy_spend()` + spend card at bottom of Tab C
-- `_delete_angle_permanently()` function (cascade: schedule → media_briefs →
-  editor_reviews → drafts → story_angle)
+### Documents created
+- `SWPI_Content_Strategy_Audit_2026-06-29.md` — devil's advocate review of the app
+  vs. market, 3 pros, 3 cons, virality feature roadmap, platform expansion analysis
 
-**`ui/pages/4_Drafts.py`**
-- Delete button 🗑️ on every draft card — arm/confirm, cascade via `delete_draft_permanently()`
-- `_get_copywriter_spend()` + spend card at bottom of Generate tab
-- Warm slate colours in `_render_body()` and `STATUS_BADGE`
-- `format_cost_inr` throughout
+### Content published (2026-06-30)
+- 3 posts published: 1 LinkedIn, 1 Facebook, 1 Instagram
+- First SWPI brand page post live on Facebook
+- Personal launch posts drafted for Jitendra's personal FB + Instagram
 
-**`ui/pages/2_Research.py`** — full INR display; spend card shows Today/Month/All time
-for Researcher agent only (was showing all agents combined).
-
-**`ui/pages/8_Orchestrator.py`** — INR display; consolidated spend dashboard showing
-Today/Month/All time + per-agent breakdown in expandable section.
-
-**`agents/copywriter.py`** — duplicate `delete_draft_permanently` and
-`get_editor_review_status` definitions removed. Each now defined exactly once.
+### Key learning from this session
+`cursor.description` is not supported by this app's PostgreSQL wrapper
+(`services/database.py`). Any function that builds dicts from rows must use
+explicit positional mapping — never rely on cursor metadata. This was confirmed
+by a production `AttributeError` on the Calendar page, fixed same session.
 
 ---
 
 ## Pending Tasks — Priority Order
 
-### 🔴 DO FIRST in next session
+### 🔴 FIRST TASK FOR NEW CHAT (see below)
 
-**1. Media page — add "hide posted drafts" toggle (`6_Media.py`)**
-- Posted media briefs are still visible in the Image Prompt Library
-- Simple filter: "Show posted" checkbox (default OFF), same pattern as Editor Tab B
-- This is the immediate UX relief needed — founder spent a whole day confused by this
-- One file, ~30 minutes
+**Feature #2 — Trend Signals research mode in Researcher agent**
 
-**2. Complete the content cycle for week of Jun 23–28**
-- Strategy was run June 23 (9 angles proposed, ₹7.84)
-- Some angles may be approved, drafts may be pending
-- Full cycle: Strategy Angles Library → approve → Generate → Editor bulk review →
-  Approve → Schedule → Post
+The Strategic Audit confirmed that SWPI currently finds *relevant* content but
+not *high-performing* content. The simple, legal fix is to extend the existing
+Researcher agent (which already runs real web search) to support a second query
+mode: instead of searching for news/studies, it searches for viral discourse —
+e.g. "cricket coaching post going viral India LinkedIn 2026."
 
-### 🟡 NEXT CODE SESSION
+Why this is the right next build:
+- Reuses existing Researcher infrastructure — near-zero new build cost
+- ToS-clean (web search, not platform scraping)
+- Directly addresses the "virality gap" Con #2 from the audit
+- Does NOT require the performance feedback loop to be mature yet
 
-**3. Home page redesign — "This Week" command centre (`ui/app.py`)**
-- Replace current status dashboard with a task-based weekly view
-- Show: angles needing approval this week, drafts needing review, posts scheduled
-- "Invisible pipeline" — user thinks in tasks, not pipeline stages
-- One clear screen: "here is what to do today"
+Files likely touched: `agents/researcher.py`, `ui/pages/2_Research.py`
+Always ask for real current files before editing.
 
-**4. Strategy spend card (already done in 3_Strategy.py — verify live)**
+---
 
-### 🔵 AFTER JUNE 19 GATE
+### 🟡 AFTER TREND SIGNALS
 
-**5. Sample SWPI academy report + LinkedIn showcase post**
-- Strongest B2B sales tool — shows academy directors what they'd receive monthly
-- Requires design work + LinkedIn post draft
+**Feature #3 — Swipe File / Inspiration Board**
+A new page where Jitendra pastes a URL or describes a post he saw go viral in his
+feed. The system extracts the structural pattern (hook type, format, emotional angle,
+length) and stores it as a reusable "inspiration tag" the Strategist can reference.
+This is legal, doesn't copy content, and turns Jitendra's own scrolling time into
+structured pipeline input.
 
-**6. External client onboarding (Saviour Rescuevator)**
-- Pricing: Starter ₹12,000–18,000/month, Full Suite ₹38,000/month, ₹8,000 setup
-- Gated: no earlier than June 19, 2026
-- Process: add new product row in Brand Brain → fill brand voice → run agents
+**Feature #4 — Carousel format support in Copywriter + Media**
+Static single-image posts are the lowest-performing format on Instagram and
+Facebook in 2026. Carousels dominate reach. This is Con #3 from the audit.
+Medium-high effort but the biggest format gap.
 
-**7. Newsletter and Blog pages (Phase 2)**
-- Deferred until 2 weeks of stable production use
+**Feature #5 — Performance-weighted angle scoring in Strategist**
+Once `post_performance` has 4–6 weeks of real data, the Strategist can weight new
+angle proposals toward patterns that historically performed better. Depends on
+Feature #1 (feedback loop, now complete) having real data first.
+
+---
+
+### 🔵 DEFERRED (do not start yet)
+
+**Sample SWPI academy report for LinkedIn showcase**
+Strongest B2B sales tool — shows academy directors what they'd receive monthly.
+Requires design work + LinkedIn post. Deferred until platform content rhythm stable.
+
+**External client onboarding (Saviour Rescuevator)**
+Pricing: Starter ₹12,000–18,000/month, Full Suite ₹38,000/month, ₹8,000 setup.
+Gated: no earlier than 2 weeks of stable SWPI production use.
+
+**WhatsApp Business (platform expansion)**
+Non-obvious highest B2B leverage — Indian academy directors respond to WhatsApp
+faster than LinkedIn InMail. This is a sales channel, not a content channel.
+Build as a broadcast/outreach tool, not a posting pipeline.
+
+**Newsletter and Blog pages**
+Deferred until 2 weeks of stable social pipeline use. Reuses existing Researcher.
+
+**X/Twitter**
+Enormous Indian cricket conversation on X. Add after LinkedIn is mature.
+
+**YouTube Shorts**
+Requires carousel/video format support first (Feature #4). Don't add platform
+before fixing the format problem.
 
 ---
 
@@ -255,10 +383,11 @@ First comment posted immediately after = SWPI product mention + sportz-well.com.
 - Facebook: parents 30–50, decision-makers for their child's academy
 - Instagram: young cricketers U10–U17 and emotionally invested parents
 
-**BCCI/IPL/national team:** Hard-capped at 4/10 in Researcher. Off-target for grassroots.
+**Coach-first framing:** Content must never alienate academy directors or coaches.
+Any angle that frames coaches negatively must be rejected or rewritten.
 
-**Coaches are primary customer:** Content must never alienate academy directors or
-coaches. Any angle that frames coaches negatively must be rewritten.
+**BCCI/IPL/national team:** Hard-capped at 4/10 in Researcher. Off-target for
+grassroots academies.
 
 **Institutional framing:** Shardashram/Achrekar/Tendulkar referenced as philosophy
 and heritage only. Never as personal credentials or lineage claims.
@@ -272,105 +401,21 @@ and heritage only. Never as personal credentials or lineage claims.
 | Sunday | Research 2 new topics |
 | Monday | Strategy → approve angles → Generate drafts |
 | Tuesday | Editor review → fix flagged → Approve |
-| Tuesday–Saturday | Post from Calendar → Mark Posted immediately after |
+| Tuesday–Saturday | Post from Calendar → Mark Posted → Log engagement numbers |
 
 ---
 
-## UX Audit Findings (2026-06-28) — Devil's Advocate Assessment
+## Budget (all-time as of 2026-06-30)
 
-**Root problem:** App was built around pipeline stages, not the founder's weekly workflow.
-User thinks "I need to post something this week." App says "which pipeline stage are you on?"
-
-**Specific UX failures identified:**
-1. Media page shows all briefs including posted — no filter. Immediate fix needed.
-2. Draft IDs (#13, #14, #31, #32) are meaningless identifiers with no context.
-3. V1 vs V2 of same angle look nearly identical in all list views.
-4. No single screen showing "what is active this week."
-5. Calendar page has minimal operational value for manual copy-paste workflow.
-6. Strategy Angles Library accumulated 24+ angles from multiple runs with no time separation.
-
-**Fixes already shipped:**
-- Week picker on Strategy (shows only this week's angles)
-- Week picker on Drafts (shows only this week's drafts)
-- Delete buttons on angles and drafts
-- Auto-hide completed angles
-- Editor shows full draft content inline
-
-**Fixes still needed:**
-- Media page: hide posted filter
-- Home page: This Week command centre
-- Calendar: collapse into Drafts as a tab (Phase 2 UX)
-
-**Jasper comparison:**
-Jasper wins on simplicity — task-first, invisible system. Our app wins on content quality —
-research-grounded, brand-voice enforced, platform-specific rules, quality gate. The goal is
-to keep the quality ceiling and make the UX as invisible as Jasper's.
-
----
-
-## DB Tables
-
-| Table           | Owner        |
-|----------------|--------------|
-| organizations   | Brand Brain  |
-| products        | Brand Brain  |
-| product_phases  | Brand Brain  |
-| brand_profiles  | Brand Brain  |
-| partner_brands  | Brand Brain  |
-| content_rules   | Brand Brain  |
-| research_items  | Researcher   |
-| api_log         | All agents   |
-| story_angles    | Strategist   |
-| drafts          | Copywriter   |
-| editor_reviews  | Editor       |
-| media_briefs    | Media        |
-| schedule        | Scheduler    |
-
----
-
-## Media Agent — Zero Cost (permanent)
-
-The Media agent makes ZERO API calls. Template function wraps
-`visual_photography_note` (or `image_brief` as fallback) with tool-specific
-style and platform aspect ratio. Instant. Free.
-
-Platform aspect ratios auto-injected:
-- Instagram → Firefly: 4:5 | ChatGPT: Tall | Gemini: Portrait
-- Facebook  → Firefly: 1:1 | ChatGPT: Square | Gemini: Square
-- LinkedIn  → Firefly: 16:9 | ChatGPT: Widescreen | Gemini: Landscape
-
-Image generation tools (confirmed subscriptions):
-Adobe Firefly ✅ | ChatGPT Free/DALL-E 3 ✅ | Google Gemini Pro ✅
-Midjourney ❌ | Runway ❌
-
----
-
-## Budget (all-time as of 2026-06-28)
-
-| Session | Cost |
-|---------|------|
+| Period | Cost |
+|--------|------|
 | All sessions to 2026-05-23 | ~$2.00 |
-| 2026-06-12 (Drafts redesign) | ~$0.00 |
-| 2026-06-14 (LinkedIn + fixes) | ~$0.00 |
-| 2026-06-18 (code fixes + research) | ~$0.63 |
-| 2026-06-23 (Strategy run) | ~₹7.84 |
-| 2026-06-28 (code sessions) | ~$0.00 |
+| 2026-06-12 to 2026-06-28 | ~$0.73 |
+| 2026-06-29 to 2026-06-30 (this session) | ~$0.00 (no API runs) |
 | **Total all-time** | **~$7.34 (~₹697)** |
 
 Weekly running cost: ~₹200/week (~₹800/month)
 Cost per published post: ~₹27
-
----
-
-## Known Issues / Watch List
-
-- **6_Media.py:** No "hide posted drafts" toggle — NEXT FIX PRIORITY
-- **Strategist intermittent JSON parse failure:** Large research libraries (20+ items).
-  Workaround: re-run — succeeds on retry.
-- **Circular import risk:** Never import `page_utils` from within `page_utils` itself.
-  Hit once on 2026-06-18 — fixed via GitHub.com direct edit.
-- **LinkedIn post body violation:** SWPI appeared in post body on one published post.
-  Editor should catch this — monitor every future draft before publishing.
 
 ---
 
@@ -381,31 +426,38 @@ Cost per published post: ~₹27
 - **GitHub:** https://github.com/Sportz-Well/sportz-well-marketing (public)
 - **API key:** Stored in Streamlit Cloud Secrets (never in code or GitHub)
 - **Auto-deploy:** Push to `master` → live in ~2 minutes
-- **Sleep:** App sleeps after inactivity, wakes in 15–30 seconds
-- **Emergency fix:** Edit files directly on GitHub.com when circular import or
-  crash prevents the app loading locally
+- **Sleep:** App sleeps after inactivity, wakes in ~30 seconds
+- **Manual reboot:** Streamlit Cloud dashboard → Manage app → Reboot
+  (needed when auto-deploy triggers but app doesn't restart cleanly)
 
 ---
 
-## Working Rules for Future Claude Sessions
+## Known Issues / Watch List
 
-1. Plan-and-paste mode: Claude plans, Jitendra runs in PowerShell on Windows.
-2. Changes to existing files: Recode WHOLE file as downloadable artifact. Never inline.
-3. New files: Label "NEW FILE", deliver whole file as artifact.
-4. One task at a time. No scope creep.
-5. Two files max per session (tightly coupled exception only).
-6. Always ask for real current file before editing. Never reconstruct from memory.
-7. Commit message required after every file save.
-8. End every session: give 2 options for next steps + recommendation with reason.
-9. Always state full file path: `C:\Users\Dell\sportz-well-marketing\path\to\file.py`
-10. No PDF files — .md only for documents.
-11. Windows PowerShell commands only.
-12. Parameterised SQL always (`?` placeholders). Never string concatenation.
-13. Confirm features before building. No surprises.
-14. After saving files, always verify with `Get-Content ... | Select-Object -Last 20`
-    before committing. "Nothing to commit" means the file wasn't saved to the right path.
-15. If app crashes with circular import: fix directly on GitHub.com, not locally.
-16. Claude acts as CTO co-founder, friend, and mentor. No sugarcoating. If an idea is
-    weak, say so directly. Test everything until both agree it is bulletproof.
-17. Maximum two files per session — this rule protects against scope creep and errors.
-    Never deliver 3 files in one session without explicit agreement.
+- **Strategist intermittent JSON parse failure:** Large research libraries (20+ items).
+  Workaround: re-run — succeeds on retry.
+- **`services/database.py` is a black box:** We have never seen this file's
+  actual content. Two bugs in this session were caused by incorrect assumptions
+  about its row-access behaviour. If any new agent produces unexpected
+  `AttributeError` or row-access issues, request this file immediately rather
+  than patching around the symptoms a third time.
+- **Scheduled post dates in the past:** Several schedule entries have
+  `scheduled_for` dates that have already passed. These show in Calendar View
+  but show 0 in "Next 7 Days." Not a code bug — real posts were scheduled
+  manually with past dates and should be marked Posted or unscheduled.
+
+---
+
+## How to Start the New Session
+
+1. Read this document fully. Not skimmable — every section matters.
+2. Say: "I've read CLAUDE.md. I understand the full context. The first task
+   is Feature #2 — Trend Signals research mode. Ready when you are. Please
+   paste `agents/researcher.py` so I can see the real current file."
+3. Wait for Jitendra to paste the real file before writing any code.
+4. Follow the working rules above on every task, every time.
+
+---
+
+*End of handover. Don't guess. Don't reconstruct from memory. Ask for real files.*
+*Companion doc: TECH_REFERENCE_FOR_AI_AGENTS.md in the repository root.*
