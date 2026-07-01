@@ -27,7 +27,13 @@ from agents.scheduler import schedule_draft
 
 # ── Page init ─────────────────────────────────────────────────────────────
 
-init_page("📥 Approval Inbox")
+st.set_page_config(
+    page_title="Approval Inbox — Sportz-Well",
+    page_icon="📥",
+    layout="wide",
+)
+
+init_page()
 
 product = get_active_product()
 if not product:
