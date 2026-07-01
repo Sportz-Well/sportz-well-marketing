@@ -5,16 +5,19 @@ Prompt 8: Scheduler Agent UI
 Three tabs:
   Tab 1 — Schedule a Draft   : pick approved draft → pick date/time → confirm
   Tab 2 — Calendar View      : week/month grid, mark as posted, unschedule,
+                                read & copy full draft text for Meta/LinkedIn posting,
                                 log engagement (likes/comments/shares) on posted entries
   Tab 3 — Pipeline Overview  : approved drafts: scheduled vs unscheduled counts
 """
 
+import json
 import streamlit as st
 from services.page_utils import init_page
 from datetime import datetime, date, timedelta
 import calendar as cal_module
 
 from services.brand_context import get_active_product
+from services.database import get_connection
 from agents.scheduler import (
     schedule_draft,
     unschedule,
@@ -36,6 +39,7 @@ st.set_page_config(
 )
 
 init_page()
+
 # ─── brand context ────────────────────────────────────────────────────────────
 
 product = get_active_product()
@@ -45,6 +49,24 @@ if not product:
 
 product_id   = product["product_id"]
 product_name = product["product_name"]
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
+
+
+def _get_draft_hashtags(draft_id: int) -> list[str]:
+    """Fetch hashtags list for a draft by ID."""
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT hashtags FROM drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+        if row and row[0]:
+            tags = json.loads(row[0])
+            return tags if isinstance(tags, list) else []
+    except Exception:
+        pass
+    return []
+
 
 # ─── header ──────────────────────────────────────────────────────────────────
 
@@ -74,7 +96,7 @@ with tab1:
     if not drafts:
         st.info(
             "No approved, unscheduled drafts found. "
-            "Go to **Drafts** or **Editor** pages to approve drafts first."
+            "Go to **Drafts** or **Approval Inbox** to approve drafts first."
         )
     else:
         # Build dropdown labels
@@ -100,7 +122,17 @@ with tab1:
             if selected_draft.get("headline"):
                 st.markdown(f"**Hook:** {selected_draft['headline']}")
             st.markdown("**Body:**")
-            st.text(selected_draft["body"][:500] + ("…" if len(selected_draft["body"]) > 500 else ""))
+            body_preview = selected_draft.get("body", "")
+            display_body = body_preview.replace("\\n\\n", "\n\n").replace("\\n", "\n")
+            st.markdown(display_body)
+
+            if selected_draft.get("cta_line"):
+                st.markdown(f"**CTA:** {selected_draft['cta_line']}")
+
+            # Hashtags
+            sel_tags = _get_draft_hashtags(selected_draft["draft_id"])
+            if sel_tags:
+                st.markdown(" ".join(sel_tags))
 
         st.divider()
 
@@ -192,6 +224,7 @@ with tab2:
                 draft_id     = entry["draft_id"]
                 posted       = entry["posted_at"] is not None
                 platform     = entry["platform"].capitalize()
+                platform_raw = entry["platform"]
                 variant      = entry["variant_number"]
                 fmt          = entry["content_format"].replace("_", " ").title()
                 angle_title  = entry["angle_title"] or "Untitled"
@@ -214,6 +247,10 @@ with tab2:
                         )
                         if posted:
                             st.caption(f"Posted at: {entry['posted_at']}")
+
+                        # Show hook preview in the summary
+                        if entry.get("headline"):
+                            st.caption(f"Hook: {entry['headline'][:120]}")
 
                     with col_actions:
                         if not posted:
@@ -322,6 +359,53 @@ with tab2:
                                     else:
                                         st.error(result["error"])
 
+                    # ── Read & Copy Draft (full width, inside container) ──
+                    with st.expander("📄 Read & Copy Draft"):
+                        entry_body = entry.get("body") or ""
+                        display_body = entry_body.replace("\\n\\n", "\n\n").replace("\\n", "\n")
+
+                        if entry.get("headline"):
+                            st.markdown(f"**Hook:** {entry['headline']}")
+
+                        if display_body:
+                            st.markdown(display_body)
+
+                        if entry.get("cta_line"):
+                            st.markdown(f"**CTA:** {entry['cta_line']}")
+
+                        # Fetch and display hashtags
+                        hashtags = _get_draft_hashtags(draft_id)
+                        if hashtags:
+                            st.markdown(" ".join(hashtags))
+
+                        # LinkedIn-specific reminder
+                        if platform_raw == "linkedin" and entry.get("cta_line"):
+                            st.info(
+                                "💡 **LinkedIn rule:** Post the body text as the main post. "
+                                "Then immediately add the CTA + sportz-well.com as your **first comment**."
+                            )
+
+                        # Copy-ready block
+                        st.divider()
+                        st.caption("📋 Copy-ready text — click the copy icon in the top-right corner:")
+
+                        copy_parts = []
+                        if display_body.strip():
+                            copy_parts.append(display_body.strip())
+                        if platform_raw != "linkedin" and entry.get("cta_line"):
+                            # For FB/IG, CTA goes in the post body
+                            copy_parts.append(entry["cta_line"])
+                        if hashtags:
+                            copy_parts.append(" ".join(hashtags))
+
+                        copy_text = "\n\n".join(copy_parts)
+                        st.code(copy_text, language=None)
+
+                        # For LinkedIn, show CTA separately for the first comment
+                        if platform_raw == "linkedin" and entry.get("cta_line"):
+                            st.caption("📋 First comment (copy separately):")
+                            st.code(entry["cta_line"], language=None)
+
             st.divider()
 
 
@@ -366,14 +450,10 @@ with tab3:
 
     if breakdown:
         st.markdown("#### Scheduled posts by platform (pending only)")
-        bcol1, bcol2 = st.columns(2)
-
-        ig_count = breakdown.get("instagram", 0)
-        fb_count = breakdown.get("facebook", 0)
-
-        bcol1.metric("📸 Instagram", ig_count)
-        bcol2.metric("👥 Facebook",  fb_count)
-
+        bcols = st.columns(len(breakdown))
+        for i, (plat, count) in enumerate(sorted(breakdown.items())):
+            emoji = {"instagram": "📸", "facebook": "👥", "linkedin": "💼"}.get(plat, "📄")
+            bcols[i].metric(f"{emoji} {plat.capitalize()}", count)
     else:
         st.info("No pending scheduled posts.")
 
@@ -390,14 +470,14 @@ with tab3:
     if total == 0:
         st.warning(
             "⚠️ No approved drafts yet. "
-            "Go to **Editor** page to review and approve drafts."
+            "Go to **Approval Inbox** to review and approve drafts."
         )
     elif unsched == 0 and sched == 0 and posted > 0:
         st.success("🎉 All approved drafts have been posted this month. Time to generate more!")
     elif unsched > 0:
         st.warning(
             f"⚠️ **{unsched}** approved draft(s) are not scheduled. "
-            "Go to **Schedule a Draft** tab to add them to the calendar."
+            "Go to **Schedule a Draft** tab or **Approval Inbox** to add them."
         )
     else:
         st.success(

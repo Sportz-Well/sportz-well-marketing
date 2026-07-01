@@ -12,7 +12,7 @@ The user can run the full pipeline or resume from any stage.
 import streamlit as st
 from services.page_utils import init_page, format_cost_inr
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from services.brand_context import get_active_product
 from agents.researcher import research_topic, GEOGRAPHY_OPTIONS
@@ -140,13 +140,19 @@ def _pipeline_snapshot(product_id: int) -> dict:
 
 
 def _get_all_agent_spend() -> dict:
-    """Return consolidated spend breakdown by agent from api_log."""
-    now   = datetime.now(timezone.utc)
-    today = now.strftime("%Y-%m-%d")
-    month = now.strftime("%Y-%m")
+    """Return consolidated spend breakdown by agent from api_log.
+
+    Includes: today, this week (Mon–now), this month, all-time, and per-agent.
+    All row access uses positional indexing (PostgreSQL-safe).
+    """
+    now        = datetime.now(timezone.utc)
+    today_str  = now.strftime("%Y-%m-%d")
+    month_str  = now.strftime("%Y-%m")
+    week_start = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
 
     result = {
         "today_usd":   0.0,
+        "week_usd":    0.0,
         "month_usd":   0.0,
         "alltime_usd": 0.0,
         "total_calls": 0,
@@ -157,30 +163,40 @@ def _get_all_agent_spend() -> dict:
         with get_connection() as conn:
             totals_row = conn.execute(
                 """SELECT
-                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0) AS today,
-                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0) AS month,
-                       COALESCE(SUM(est_cost_usd), 0) AS alltime,
-                       COUNT(*) AS calls
+                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN timestamp >= ? THEN est_cost_usd ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0),
+                       COALESCE(SUM(est_cost_usd), 0),
+                       COUNT(*)
                    FROM api_log""",
-                (f"{today}%", f"{month}%"),
+                (f"{today_str}%", f"{week_start}", f"{month_str}%"),
             ).fetchone()
             result["today_usd"]   = float(totals_row[0])
-            result["month_usd"]   = float(totals_row[1])
-            result["alltime_usd"] = float(totals_row[2])
-            result["total_calls"] = int(totals_row[3])
+            result["week_usd"]    = float(totals_row[1])
+            result["month_usd"]   = float(totals_row[2])
+            result["alltime_usd"] = float(totals_row[3])
+            result["total_calls"] = int(totals_row[4])
 
             by_agent_rows = conn.execute(
                 """SELECT
                        agent,
-                       COUNT(*) AS calls,
-                       COALESCE(SUM(est_cost_usd), 0) AS alltime_usd,
-                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0) AS month_usd
+                       COUNT(*),
+                       COALESCE(SUM(est_cost_usd), 0),
+                       COALESCE(SUM(CASE WHEN timestamp LIKE ? THEN est_cost_usd ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN timestamp >= ? THEN est_cost_usd ELSE 0 END), 0)
                    FROM api_log
                    GROUP BY agent
-                   ORDER BY alltime_usd DESC""",
-                (f"{month}%",),
+                   ORDER BY 3 DESC""",
+                (f"{month_str}%", f"{week_start}"),
             ).fetchall()
-            result["by_agent"] = [dict(r) for r in by_agent_rows]
+            for r in by_agent_rows:
+                result["by_agent"].append({
+                    "agent":       r[0] or "unknown",
+                    "calls":       int(r[1]),
+                    "alltime_usd": float(r[2]),
+                    "month_usd":   float(r[3]),
+                    "week_usd":    float(r[4]),
+                })
     except Exception:
         pass
 
@@ -214,11 +230,12 @@ st.subheader("💸 Total API Spend")
 
 spend = _get_all_agent_spend()
 
-sp1, sp2, sp3, sp4 = st.columns(4)
-sp1.metric("Today",        format_cost_inr(spend["today_usd"]))
-sp2.metric("This month",   format_cost_inr(spend["month_usd"]))
-sp3.metric("All time",     format_cost_inr(spend["alltime_usd"]))
-sp4.metric("Total API calls", spend["total_calls"])
+sp1, sp2, sp3, sp4, sp5 = st.columns(5)
+sp1.metric("Today",          format_cost_inr(spend["today_usd"]))
+sp2.metric("This week",      format_cost_inr(spend["week_usd"]))
+sp3.metric("This month",     format_cost_inr(spend["month_usd"]))
+sp4.metric("All time",       format_cost_inr(spend["alltime_usd"]))
+sp5.metric("Total API calls", spend["total_calls"])
 
 if spend["by_agent"]:
     with st.expander("Breakdown by agent"):
@@ -231,14 +248,16 @@ if spend["by_agent"]:
             "media":      "📸 Media (free)",
         }
         for row in spend["by_agent"]:
-            agent      = row.get("agent") or "unknown"
-            label      = _AGENT_LABEL.get(agent, agent.capitalize())
-            calls      = int(row.get("calls") or 0)
-            alltime    = float(row.get("alltime_usd") or 0.0)
-            month_usd  = float(row.get("month_usd") or 0.0)
+            agent     = row.get("agent", "unknown")
+            label     = _AGENT_LABEL.get(agent, agent.capitalize())
+            calls     = row.get("calls", 0)
+            alltime   = row.get("alltime_usd", 0.0)
+            month_usd = row.get("month_usd", 0.0)
+            week_usd  = row.get("week_usd", 0.0)
             st.markdown(
                 f"**{label}** — "
                 f"{calls} call{'s' if calls != 1 else ''} · "
+                f"This week: {format_cost_inr(week_usd)} · "
                 f"This month: {format_cost_inr(month_usd)} · "
                 f"All time: {format_cost_inr(alltime)}"
             )
@@ -363,9 +382,9 @@ with tab_full:
                 pipeline_log.append(("Strategy", "ok", cost, None))
 
         st.warning(
-            "⏸ **Strategy complete.** Before drafting, go to the **Strategy** page "
-            "and approve the angles you want to use. "
-            "Then come back here and use **Run Individual Stage → Drafts** to continue."
+            "⏸ **Strategy complete.** Go to **Approval Inbox** to approve angles. "
+            "The Inbox will auto-generate drafts, run Editor, and create image prompts "
+            "when you approve each angle."
         )
         st.info(f"💡 Total cost so far: **{_fmt_cost(total_cost)}**")
         st.stop()
@@ -449,7 +468,7 @@ with tab_stage:
                 if result.get("warnings"):
                     for w in result["warnings"]:
                         st.caption(f"⚠️ {w}")
-                st.info("Go to **Strategy** page to approve the angles you want to draft.")
+                st.info("Go to **Approval Inbox** to approve angles and auto-generate drafts.")
 
     # ── Drafts ────────────────────────────────────────────────────────────
     elif stage == "✍️ Drafts (all approved angles)":
@@ -527,12 +546,12 @@ with tab_stage:
                     f"Cost: {_fmt_cost(total_cost)}"
                 )
                 if flagged_n > 0:
-                    st.info("Go to **Editor** page to review flagged drafts and approve/reject.")
+                    st.info("Go to **Editor** page to review flagged drafts, or use **Approval Inbox**.")
 
     # ── Media ────────────────────────────────────────────────────────────
     elif stage == "📸 Media (all drafts without brief)":
         st.markdown("#### Media Stage")
-        st.caption("Generates photography briefs for all drafts that don't have one yet.")
+        st.caption("Generates image prompts for all drafts that don't have one yet.")
 
         with get_connection() as conn:
             without_brief = conn.execute(
@@ -554,7 +573,7 @@ with tab_stage:
 
                 st.success(
                     f"✅ Generated: **{result['generated']}** · "
-                    f"Skipped (no image brief): {result['skipped_no_brief']} · "
+                    f"Skipped (no image note): {result.get('skipped_no_source', 0)} · "
                     f"Failed: {result['failed']} · "
                     f"Cost: Free"
                 )
@@ -573,7 +592,7 @@ with tab_stage:
     if unscheduled:
         st.warning(
             f"**{len(unscheduled)} approved draft(s)** are ready to schedule. "
-            "Go to **Calendar → Schedule a Draft** to add them to the calendar."
+            "Go to **Calendar → Schedule a Draft** or use **Approval Inbox**."
         )
     else:
         st.info("Pipeline is up to date. Check Calendar for scheduled posts.")
